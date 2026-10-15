@@ -263,6 +263,11 @@ button.stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); b
   font-size: 11px; padding: 1px 8px; margin-left: 6px; color: var(--muted);
 }
 .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+/* 可点击跳转的群号/链接：手型 + 悬停高亮 */
+.group-grid .jump-link { cursor: pointer; color: var(--accent); font-weight: 600; }
+.group-grid .jump-link:hover { text-decoration: underline; }
+.group-grid a { color: var(--accent); }
+.group-grid a:hover { text-decoration: underline; }
 .group-empty { color: var(--muted); font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
 /* ---------- 作业条目 ---------- */

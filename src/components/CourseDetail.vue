@@ -12,7 +12,7 @@ import {
   saveBoardGroup,
   archiveSynced
 } from '../store'
-import { ddlBadge, fmtDT, fmtSize, fileIcon, copyText, courseKeyOf } from '../utils'
+import { ddlBadge, fmtDT, fmtSize, fileIcon, courseKeyOf, openGroupChat } from '../utils'
 import RichText from './RichText.vue'
 import BoardReviewRow from './BoardReviewRow.vue'
 
@@ -153,9 +153,12 @@ async function saveGroup() {
   }
   await saveBoardGroup(courseKey.value, { ...gform, type: gform.type })
 }
-async function copySharedGroupNum() {
-  const num = groupInfo.value?.num || ''
-  if (num && await copyText(num)) toast('已复制：' + num)
+/* 点击群号：复制并尽力跳转到对应应用 */
+async function jumpGroup() {
+  const g = groupInfo.value
+  if (!g?.num) return
+  const msg = await openGroupChat(g.type, g.num)
+  if (msg) toast(msg)
 }
 /* 教学群全班只有共享的一份：负责人看自己维护的，成员看同步到的 */
 const groupInfo = computed(() => {
@@ -475,12 +478,12 @@ function fileSub(f) {
             <span class="gl">类型</span><span class="gv"><b>{{ groupInfo.type || '—' }}</b></span>
             <span class="gl">群号/群名</span>
             <span class="gv">
-              <b>{{ groupInfo.num || '—' }}</b>
-              <button v-if="groupInfo.num" class="copy-btn" @click="copySharedGroupNum">复制</button>
+              <b v-if="groupInfo.num" class="jump-link" title="点击复制群号并打开对应应用" @click="jumpGroup">{{ groupInfo.num }}</b>
+              <template v-else>—</template>
             </span>
             <span class="gl">链接</span>
             <span class="gv">
-              <a v-if="groupInfo.link" :href="groupInfo.link" target="_blank" rel="noopener">{{ groupInfo.link }}</a>
+              <a v-if="groupInfo.link" class="jump-link" :href="groupInfo.link" target="_blank" rel="noopener" title="点击打开链接">{{ groupInfo.link }}</a>
               <template v-else>—</template>
             </span>
             <span class="gl">备注</span><span class="gv">{{ groupInfo.note || '—' }}</span>

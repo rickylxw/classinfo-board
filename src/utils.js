@@ -70,3 +70,28 @@ export async function copyText(t) {
     return ok
   }
 }
+
+/* 群号点击跳转：复制群号并尽力唤起对应应用。
+ * 移动端 QQ 可经 mqqapi scheme 直达群名片；桌面端与其他类型复制后提示手动打开。
+ * 返回提示语，由调用方负责 toast（utils 不依赖 store，避免循环引用）。 */
+export async function openGroupChat(type, num) {
+  const n = String(num || '').trim()
+  if (!n) return ''
+  await copyText(n)
+  const t = String(type || '')
+  if (/QQ/i.test(t)) {
+    if (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) {
+      const a = document.createElement('a')
+      a.href = `mqqapi://card/show_pslcard?src_type=internal&version=1&uin=${encodeURIComponent(n)}&card_type=group&source=qrcode`
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      return '群号已复制，正在打开 QQ…'
+    }
+    return '群号已复制，请打开 QQ 粘贴搜索加群'
+  }
+  if (/微信/i.test(t)) return '群号已复制：微信群需群内邀请，可把群号发给同学'
+  if (/数智东南/i.test(t)) return '群号已复制，请打开「数智东南」App 粘贴搜索加群'
+  return '已复制：' + n
+}
