@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { login, adminLogin, passwordLogin, setPassword, fetchMe } from '../api'
 import { handleLogin, handleAdminLogin, toast } from '../store'
 
@@ -11,6 +11,42 @@ const cookie = ref('')
 const error = ref('')
 const loading = ref(false)
 const remembered = ref('')
+const extractNote = ref('')
+
+/* 兼容三种粘贴：整段 cURL 命令（右键 Copy as cURL）、带 cookie: 头名的行、纯 Cookie 值 */
+function extractCookie(raw) {
+  let v = String(raw).trim()
+  if (!v) return { value: '', fromCurl: false }
+  const m = v.match(/-H\s*['"]\s*cookie\s*:\s*([^'"]+?)\s*['"]/i)
+    || v.match(/--cookie\s*=?\s*['"]([^'"]+)['"]/i)
+    || v.match(/-b\s*['"]([^'"]+)['"]/i)
+  if (m) return { value: m[1].trim(), fromCurl: true }
+  v = v.replace(/^cookie\s*:\s*/i, '')
+  return { value: v.trim(), fromCurl: false }
+}
+
+function onPaste(e) {
+  const text = e.clipboardData?.getData('text') || ''
+  if (!text) return
+  const { value, fromCurl } = extractCookie(text)
+  if (fromCurl) {
+    e.preventDefault()
+    cookie.value = value
+    extractNote.value = '✅ 已从 cURL 命令自动提取 Cookie，直接点「登录验证」即可'
+  } else if (/^cookie\s*:\s*/i.test(text.trim())) {
+    e.preventDefault()
+    cookie.value = value
+  }
+}
+
+const cookieHint = computed(() => {
+  const v = cookie.value.trim()
+  if (!v) return null
+  if (!v.includes('MOD_AUTH_CAS')) {
+    return { type: 'error', text: '未检测到 MOD_AUTH_CAS（HttpOnly 凭证）——请确认是从 ehall 请求的 Request Headers 复制的 cookie 行，或右键请求 Copy as cURL 整段粘贴' }
+  }
+  return { type: 'ok', text: '✓ 已检测到 MOD_AUTH_CAS，可以进行登录验证' }
+})
 
 // 应用密码登录
 const pwXh = ref('')
@@ -34,7 +70,8 @@ onMounted(() => {
   remembered.value = localStorage.getItem(REMEMBER_KEY) || ''
 })
 
-async function doLogin(value = cookie.value.trim(), viaQuick = false) {
+async function doLogin(raw = cookie.value, viaQuick = false) {
+  const value = extractCookie(raw).value
   if (!value) { error.value = '请先粘贴 Cookie'; return }
   loading.value = true
   error.value = ''
@@ -162,10 +199,17 @@ async function doAdminLogin() {
             <summary>📋 如何获取 ehall Cookie？{{ remembered ? '（快捷登录失败时才需要）' : '（首次使用请看）' }}</summary>
             <ol>
               <li>在浏览器登录 <b>ehall.seu.edu.cn</b>（保持登录状态）</li>
-              <li>按 <b>F12</b> 打开开发者工具，切到 <b>Network（网络）</b> 面板</li>
-              <li>刷新页面，在请求列表里点任意一个请求</li>
-              <li>在 <b>Request Headers（请求标头）</b> 里找到 <b>cookie:</b> 一行，右键 → 复制值（Copy value）</li>
-              <li>粘贴到下方输入框，点「登录验证」</li>
+              <li>
+                进入 <b>我的课表</b> 应用（<a href="http://ehall.seu.edu.cn/appShow?appId=4770397878132218" target="_blank" rel="noopener" style="color:var(--accent);">点此直达</a>）
+                <span class="muted">——必须先进一次应用，之后复制的 Cookie 才对课表接口有效</span>
+              </li>
+              <li>按 <b>F12</b> 打开开发者工具，切到 <b>Network（网络）</b> 面板，刷新页面</li>
+              <li>
+                <b>推荐</b>：右键任意一个发往 ehall 的请求 → <b>Copy（复制）</b> → <b>Copy as cURL</b>，
+                回到本页把整段命令粘贴到下面输入框，会自动提取 Cookie，不用自己找 header<br>
+                <span class="muted">也可以手动：点该请求 → Request Headers（请求标头）→ <b>cookie:</b> 一行 → 右键 → 复制值</span>
+              </li>
+              <li>回到本页点「登录验证」</li>
             </ol>
             <p class="muted" style="margin:4px 0;font-size:12px;">
               提示：Cookie 相当于你的 ehall 登录凭证，验证通过后只用于本应用拉课表；设置应用密码后，日常登录不再需要它。
@@ -176,7 +220,10 @@ async function doAdminLogin() {
             <label>ehall Cookie</label>
             <textarea
               v-model="cookie" rows="4"
-              placeholder="MOD_AUTH_CAS=…; mod_auth_session=…（整段粘贴）"></textarea>
+              @paste="onPaste" @input="extractNote = ''"
+              placeholder="粘贴整段 Cookie（MOD_AUTH_CAS=…），或右键请求 Copy as cURL 后整段粘贴也行"></textarea>
+            <div v-if="extractNote" class="tt-status" style="margin:4px 0 0;">{{ extractNote }}</div>
+            <div v-else-if="cookieHint" class="tt-status" :class="{ error: cookieHint.type === 'error' }" style="margin:4px 0 0;">{{ cookieHint.text }}</div>
           </div>
           <div v-if="error" class="tt-status error">{{ error }}</div>
 
