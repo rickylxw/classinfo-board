@@ -1,6 +1,6 @@
 /* 全局响应式状态 + 持久化（localStorage 结构化数据 / IndexedDB 文件实体 / 登录后同步云端） */
 import { reactive, watch } from 'vue'
-import { uid, toLocalInput, courseKeyOf } from './utils'
+import { uid, courseKeyOf } from './utils'
 import * as api from './api'
 import { session } from './api'
 
@@ -35,6 +35,7 @@ export const personalCount = () =>
 export const archivedCount = () => store.assignments.filter(a => a.archived).length
 
 export function archiveAssignment(id) {
+  if (!requireLogin('归档')) return
   const a = store.assignments.find(x => x.id === id)
   if (a) {
     a.archived = true
@@ -43,6 +44,7 @@ export function archiveAssignment(id) {
   }
 }
 export function restoreAssignment(id) {
+  if (!requireLogin('恢复')) return
   const a = store.assignments.find(x => x.id === id)
   if (a) {
     a.archived = false
@@ -51,6 +53,7 @@ export function restoreAssignment(id) {
   }
 }
 export function archiveDone(scope) {
+  if (!requireLogin('归档')) return
   // scope: 'personal' | { courseId } | 'all'（仅统计自己的作业与个人待办，不含班级同步项）
   const list = store.assignments.filter(a => {
     if (a.status !== 'done' || a.archived) return false
@@ -70,6 +73,13 @@ export function toast(msg, type = '') {
   const t = { id: uid(), msg, type }
   toasts.push(t)
   setTimeout(() => { const i = toasts.indexOf(t); if (i > -1) toasts.splice(i, 1) }, type === 'error' ? 4500 : 2600)
+}
+
+/* 未登录（首次进入为只读欢迎页）一律禁止修改数据；所有数据变更函数入口处调用 */
+const requireLogin = op => {
+  if (session.token && !session.isAdmin) return true
+  toast('请先登录后再' + op, 'error')
+  return false
 }
 
 /* ---------- localStorage 持久化（启动缓存 + 未登录纯本地模式；登录态下每次变动走 ops 即时上云） ---------- */
@@ -187,6 +197,7 @@ export async function fetchSyncs() {
 }
 
 export function toggleSynced(id) {
+  if (!requireLogin('修改完成状态')) return
   if (store.syncStatus[id] === 'archived') return   // 已归档的先恢复再操作
   store.syncStatus[id] = store.syncStatus[id] === 'done' ? 'pending' : 'done'
   enqueueOps([{ op: 'syncStatus', entries: { [id]: store.syncStatus[id] } }])
@@ -194,11 +205,13 @@ export function toggleSynced(id) {
 
 /* 同步作业的个人归档：仅隐藏自己视角，共享板与他人不受影响 */
 export function archiveSynced(id) {
+  if (!requireLogin('归档')) return
   store.syncStatus[id] = 'archived'
   enqueueOps([{ op: 'syncStatus', entries: { [id]: 'archived' } }])
   toast('已归档，可在「🗃 归档」中找回')
 }
 export function restoreSynced(id) {
+  if (!requireLogin('恢复')) return
   store.syncStatus[id] = 'pending'
   enqueueOps([{ op: 'syncStatus', entries: { [id]: 'pending' } }])
   toast('已恢复到班级同步列表')
@@ -449,6 +462,7 @@ export async function doLogout() {
 
 /* ---------- 作业要求里的内嵌图片（不进文件列表，靠 cbimg://<id> 引用） ---------- */
 export async function addInlineImage(file, courseId) {
+  if (!requireLogin('上传图片')) return
   const id = uid()
   const rec = {
     id, courseId: courseId || '', kind: 'blob', inline: true,
@@ -482,6 +496,7 @@ export async function getFileBlobById(id) {
 
 /* ---------- 同学共享（同名同教师课程） ---------- */
 export async function copySharedAssignment(a, courseId) {
+  if (!requireLogin('复制共享作业')) return
   const mine = store.assignments.find(x =>
     x.courseId === courseId && x.title === a.title && x.deadline === a.deadline)
   if (mine) { toast('我的作业里已有相同标题与 DDL 的条目', 'error'); return }
@@ -496,41 +511,16 @@ export async function copySharedAssignment(a, courseId) {
 }
 
 export function initStore() {
+  // 首次进入不给任何数据（也不再有示例数据）；localStorage 仅作登录用户的启动缓存
   try {
     const raw = localStorage.getItem(LS_KEY)
-    if (raw) {
-      const d = JSON.parse(raw)
-      store.courses = d.courses || []
-      store.assignments = d.assignments || []
-      store.files = d.files || []
-      store.syncStatus = d.syncStatus || {}
-      localStorage.setItem('classinfo-visited', '1')
-      return
-    }
-  } catch (e) { /* 数据损坏则重置 */ }
-  // 示例数据只在第一次使用时出现；退出登录清空后不再重新播种
-  if (!localStorage.getItem('classinfo-visited')) {
-    localStorage.setItem('classinfo-visited', '1')
-    seedSample()
-  }
-}
-
-function seedSample() {
-  const now = Date.now()
-  const iso = days => toLocalInput(new Date(now + days * 864e5))
-  store.courses = [{
-    id: 'c-demo', name: '示例：数据结构（可删除）', teacher: '王老师', semester: '2026-2027-1',
-    category: '专业类', color: '#6366f1',
-    note: '成绩构成：平时 30% + 期末 70%\n每周三 3-4 节 · 教三 301\n教学群信息在课程页「👥 教学群」卡片查看（班级共享）',
-    createdAt: now
-  }]
-  store.assignments = [
-    { id: 'a-demo1', courseId: 'c-demo', title: 'Lab1 顺序表实现', deadline: iso(2), status: 'pending', requirement: '实现顺序表的增删改查接口，提交 .zip 压缩包，内含源码与实验报告 PDF。', createdAt: now },
-    { id: 'a-demo2', courseId: 'c-demo', title: '预习：第 3 章 栈与队列', deadline: iso(6), status: 'pending', requirement: '', createdAt: now }
-  ]
-  store.files = [
-    { id: 'f-demo1', courseId: 'c-demo', kind: 'link', name: '课程主页（示例链接）', url: 'https://example.com', note: '查分、课件下载', addedAt: now }
-  ]
+    if (!raw) return
+    const d = JSON.parse(raw)
+    store.courses = d.courses || []
+    store.assignments = d.assignments || []
+    store.files = d.files || []
+    store.syncStatus = d.syncStatus || {}
+  } catch (e) { /* 缓存损坏则当作无缓存 */ }
 }
 
 /* ---------- IndexedDB（上传文件的本体） ---------- */
@@ -613,6 +603,7 @@ export const pendingCount = courseId => {
 
 /* ---------- 课程 ---------- */
 export function upsertCourse(data) {
+  if (!requireLogin(data.id ? '编辑课程' : '创建课程')) return
   if (data.id) {
     const c = courseById(data.id)
     if (c) {
@@ -631,6 +622,7 @@ export function upsertCourse(data) {
 }
 
 export async function deleteCourse(id) {
+  if (!requireLogin('删除课程')) return
   const c = courseById(id)
   if (!c) return
   const na = store.assignments.filter(a => a.courseId === id).length
@@ -662,6 +654,7 @@ export async function deleteCourse(id) {
 
 /* ---------- 作业 ---------- */
 export function upsertAssignment(data) {
+  if (!requireLogin(data.id ? '编辑作业' : '创建作业')) return
   if (data.id) {
     const a = store.assignments.find(x => x.id === data.id)
     if (a) {
@@ -682,6 +675,7 @@ export function upsertAssignment(data) {
 }
 
 export function toggleAssignment(id) {
+  if (!requireLogin('修改完成状态')) return
   const a = store.assignments.find(x => x.id === id)
   if (a) {
     a.status = a.status === 'done' ? 'pending' : 'done'
@@ -690,6 +684,7 @@ export function toggleAssignment(id) {
 }
 
 export function deleteAssignment(id) {
+  if (!requireLogin('删除作业')) return
   const a = store.assignments.find(x => x.id === id)
   if (!a || !confirm(`删除作业「${a.title}」？`)) return
   store.assignments = store.assignments.filter(x => x.id !== id)
@@ -703,6 +698,7 @@ export function deleteAssignment(id) {
 
 /* ---------- 文件 ---------- */
 export async function uploadFiles(list, courseId) {
+  if (!requireLogin('上传文件')) return
   let ok = 0
   for (const file of list) {
     const id = uid()
@@ -727,6 +723,7 @@ export async function uploadFiles(list, courseId) {
 }
 
 export function addLink(data) {
+  if (!requireLogin('添加链接')) return
   const rec = { id: uid(), kind: 'link', addedAt: Date.now(), ...data }
   store.files.push(rec)
   enqueueOps([{ op: 'upsert', coll: 'files', items: [{ ...rec }] }])
@@ -749,6 +746,7 @@ export async function downloadFile(id) {
 }
 
 export async function deleteFile(id) {
+  if (!requireLogin('删除文件')) return
   const f = store.files.find(x => x.id === id)
   if (!f || !confirm(`删除「${f.name}」？`)) return
   if (f.kind === 'blob') {
@@ -765,6 +763,7 @@ export async function deleteFile(id) {
 
 /* ---------- 课表导入 ---------- */
 export function importTimetable(list, { semester } = {}) {
+  if (!requireLogin('导入课表')) return
   let added = 0
   let skipped = 0
   const created = []
@@ -822,6 +821,7 @@ export async function exportData() {
 }
 
 export async function importData(file) {
+  if (!requireLogin('导入备份')) return
   try {
     const payload = JSON.parse(await file.text())
     if (payload.app !== 'classinfo-board' || !payload.state) throw new Error('格式不符')

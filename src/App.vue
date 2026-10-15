@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { reactive, ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { store, initStore, initSession } from './store'
 import { session } from './api'
 import TopBar from './components/TopBar.vue'
@@ -18,7 +18,13 @@ import ScheduleView from './components/ScheduleView.vue'
 import Toasts from './components/Toasts.vue'
 
 initStore()
-onMounted(initSession)
+// 启动：先验证会话再亮界面；未登录一律只见只读欢迎门（无数据、无修改入口）
+const booted = ref(false)
+onMounted(async () => {
+  await initSession()
+  booted.value = true
+})
+const needLogin = computed(() => booted.value && !session.xh)
 
 // ESC：先关对话框，再收起抽屉
 function onKey(e) {
@@ -80,17 +86,45 @@ function openSubmitAssignmentDialog(courseKey) {
 </script>
 
 <template>
-  <TopBar
-    @new-course="openCourseDialog()"
-    @pull-timetable="ui.dialog = 'timetable'"
-    @login="ui.dialog = 'login'"
-    @toggle-sidebar="store.sidebarOpen = !store.sidebarOpen" />
+  <!-- 启动中：先验证会话，避免闪现欢迎门或空界面 -->
+  <div v-if="!booted" class="boot-splash">
+    <div class="boot-logo">📚</div>
+    <div>课程信息板</div>
+    <div class="muted" style="font-size:12px;">正在进入…</div>
+  </div>
 
-  <!-- 管理员：独立控制台（不加载用户课程数据界面） -->
-  <AdminPanel v-if="session.isAdmin" />
+  <!-- 首次进入 / 未登录：只读欢迎门，不给任何数据，也没有修改入口 -->
+  <div v-else-if="needLogin" class="welcome">
+    <div class="welcome-card">
+      <div class="welcome-logo">📚</div>
+      <h1>课程信息板</h1>
+      <p class="welcome-sub">课程 · 作业 DDL · 文件 · 班级共享，登录后一站式管理</p>
+      <ul class="welcome-feats">
+        <li>🏷️ 按课程整理教学群、作业要求与课件文件</li>
+        <li>☁️ 数据云端同步，换设备登录即取回</li>
+        <li>🤝 班级共享板：作业 / 附件 / 教学群全班同一份</li>
+        <li>📅 日程表周视图 + DDL 归档 + 个人待办</li>
+      </ul>
+      <button class="btn primary lg" @click="ui.dialog = 'login'">🚪 登录后开始使用</button>
+      <p class="muted" style="font-size:12px;margin-top:14px;">
+        东南大学 ehall Cookie 验证登录，可设置应用密码免 Cookie 进入；<br>
+        未登录状态为只读预览，不提供数据修改。
+      </p>
+    </div>
+  </div>
 
-  <!-- 用户 / 本地模式 -->
-  <div v-else class="layout">
+  <template v-else>
+    <TopBar
+      @new-course="openCourseDialog()"
+      @pull-timetable="ui.dialog = 'timetable'"
+      @login="ui.dialog = 'login'"
+      @toggle-sidebar="store.sidebarOpen = !store.sidebarOpen" />
+
+    <!-- 管理员：独立控制台（不加载用户课程数据界面） -->
+    <AdminPanel v-if="session.isAdmin" />
+
+    <!-- 用户 -->
+    <div v-else class="layout">
     <SideBar @new-course="openCourseDialog()" />    <main class="main">
       <div class="main-inner">
         <Dashboard
@@ -117,6 +151,7 @@ function openSubmitAssignmentDialog(courseKey) {
       </div>
     </main>
   </div>
+  </template>
 
   <CourseDialog
     v-if="ui.dialog === 'course'"
