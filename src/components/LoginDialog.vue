@@ -204,10 +204,11 @@ async function doAdminLogin() {
                 <span class="muted">——必须先进一次应用，之后复制的 Cookie 才对课表接口有效</span>
               </li>
               <li>按 <b>F12</b> 打开开发者工具，切到 <b>Network（网络）</b> 面板，刷新页面</li>
+              <li>点请求列表上方的 <b>Fetch/XHR</b> 筛选，再随便点一个 <b>.do</b> 结尾的请求<span class="muted">（「我的课表」的接口都是 .do 文件）</span></li>
               <li>
-                <b>推荐</b>：右键任意一个发往 ehall 的请求 → <b>Copy（复制）</b> → <b>Copy as cURL</b>，
+                <b>推荐</b>：右键该请求 → <b>Copy（复制）</b> → <b>Copy as cURL</b>，
                 回到本页把整段命令粘贴到下面输入框，会自动提取 Cookie，不用自己找 header<br>
-                <span class="muted">也可以手动：点该请求 → Request Headers（请求标头）→ <b>cookie:</b> 一行 → 右键 → 复制值</span>
+                <span class="muted">也可以手动：在 Headers（标头）里找到 <b>cookie:</b> 一行 → 右键 → 复制值</span>
               </li>
               <li>回到本页点「登录验证」</li>
             </ol>
