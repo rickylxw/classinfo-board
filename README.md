@@ -129,3 +129,7 @@ src/
 ## 仓库管理
 
 代码仓库的入库边界、分支/提交规范与 GitHub 管理流程见 [docs/repo-management.md](docs/repo-management.md)；运行时数据（`backend/data/`，含明文 ehall Cookie）**永不入库**，数据安全与备份体系见 [SECURITY.md](SECURITY.md)。
+
+## 开源许可
+
+本项目以 [GPL-3.0-or-later](LICENSE) 协议开源：任何人在遵守 GPL-3.0 的前提下可自由使用、修改、再分发；修改后的版本若对外发布，必须同样以 GPL-3.0（或更新版本）开源。
