@@ -35,6 +35,9 @@ async function req(path, { method = 'GET', body } = {}) {
 }
 
 export const login = cookie => req('/auth/login', { method: 'POST', body: { cookie } })
+// 应用密码登录：首次 ehall Cookie 登录后设置密码，之后学号+密码直接进，无需再复制 Cookie
+export const passwordLogin = (xh, password) => req('/auth/password-login', { method: 'POST', body: { xh, password } })
+export const setPassword = (next, current = '') => req('/auth/set-password', { method: 'POST', body: { next, current } })
 export const adminLogin = (username, password) => req('/auth/admin-login', { method: 'POST', body: { username, password } })
 export const logout = () => req('/auth/logout', { method: 'POST' }).catch(() => {})
 export const fetchMe = () => req('/auth/me')

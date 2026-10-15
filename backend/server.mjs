@@ -274,7 +274,14 @@ async function dirSize(dir) {
 const bearer = req => (/^Bearer (.+)$/.exec(req.headers.authorization || '') || [])[1] || ''
 function auth(req) {
   const s = sessions[bearer(req)]
-  return (s && s.expiresAt > Date.now()) ? s : null
+  if (!s || s.expiresAt <= Date.now()) return null
+  // 滑动续期：活跃会话每次使用都顺延（1 小时节流，避免高频写盘），常用用户永不过期
+  if (Date.now() - (s.renewedAt || 0) > 3600e3) {
+    s.expiresAt = Date.now() + SESSION_DAYS * 864e5
+    s.renewedAt = Date.now()
+    saveSessions()
+  }
+  return s
 }
 // 用户端点专用：管理员会话不能当用户会话用
 function userAuth(req) {
@@ -534,7 +541,52 @@ http.createServer(async (req, res) => {
     if (p === '/auth/me' && req.method === 'GET') {
       const s = auth(req)
       if (!s) return json(res, 401, { error: '未登录或会话过期' })
-      return s.admin ? json(res, 200, { xh: 'admin', admin: true }) : json(res, 200, { xh: s.xh })
+      if (s.admin) return json(res, 200, { xh: 'admin', admin: true })
+      const acc = await loadAccount(s.xh)
+      return json(res, 200, { xh: s.xh, hasPassword: !!acc?.pw })
+    }
+
+    /* 应用密码登录：首次用 ehall Cookie 登录后设置密码，之后学号+密码直接进，无需再复制 Cookie */
+    if (p === '/auth/password-login' && req.method === 'POST') {
+      if (rateLimited('password-login:' + clientIp(req), 5, 10 * 60 * 1000)) return json(res, 429, { error: '尝试过于频繁，请 10 分钟后再试' })
+      const body = await readJson(req, 65536)
+      const xh = safeId(String(body.xh || '').trim())
+      if (!xh || xh === 'admin') return json(res, 400, { error: '请输入学号' })
+      const acc = await loadAccount(xh)
+      if (!acc?.pw) return json(res, 404, { error: '该账号还没有设置应用密码，请先用 ehall Cookie 登录一次' })
+      const [, salt, hash] = String(acc.pw).split('$')
+      const ok = acc.pw.startsWith('scrypt$') && !!salt && !!hash &&
+        timingEq(crypto.scryptSync(String(body.password || ''), salt, 32).toString('hex'), hash)
+      if (!ok) return json(res, 401, { error: '学号或应用密码错误' })
+      const token = crypto.randomBytes(24).toString('hex')
+      sessions[token] = { xh, expiresAt: Date.now() + SESSION_DAYS * 864e5 }
+      acc.lastLoginAt = Date.now()
+      await saveAccount(acc)
+      saveSessions()
+      console.log(`[auth] ${xh} 应用密码登录成功`)
+      return json(res, 200, { token, xh, isNew: false })
+    }
+
+    /* 设置/修改应用密码（需已登录） */
+    if (p === '/auth/set-password' && req.method === 'POST') {
+      const s = userAuth(req)
+      if (!s) return json(res, 401, { error: '未登录或会话过期' })
+      const body = await readJson(req, 65536)
+      const next = String(body.next || '')
+      if (next.length < 6 || next.length > 64) return json(res, 400, { error: '应用密码长度需在 6-64 位之间' })
+      const acc = await loadAccount(s.xh)
+      if (!acc) return json(res, 404, { error: '账号不存在' })
+      if (acc.pw) {
+        const [, salt, hash] = String(acc.pw).split('$')
+        const okCurrent = acc.pw.startsWith('scrypt$') && !!salt && !!hash &&
+          timingEq(crypto.scryptSync(String(body.current || ''), salt, 32).toString('hex'), hash)
+        if (!okCurrent) return json(res, 401, { error: '当前应用密码不对' })
+      }
+      const hadPw = !!acc.pw
+      acc.pw = hashPassword(next)
+      await saveAccount(acc)
+      console.log(`[auth] ${s.xh} ${hadPw ? '更新' : '设置'}了应用密码`)
+      return json(res, 200, { ok: true })
     }
 
     /* 管理员登录（账号密码，非 ehall） */

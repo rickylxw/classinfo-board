@@ -134,6 +134,29 @@ await withTestServer({ U: { xh: 'itest01' } }, async ({ base, token }) => {
     const b5 = await jbody(await req('/data/ops', 'POST', { ops: [] }))
     ok(b5?.ok === true, '空批次安全返回')
   }
+
+  console.log('— 应用密码登录 —')
+  {
+    const me0 = await jbody(await fetch(base + '/auth/me', { headers: { Authorization: 'Bearer ' + TOKEN } }))
+    ok(me0.xh === 'itest01' && me0.hasPassword === false, '/auth/me 返回 hasPassword=false')
+    const noPw = await fetch(base + '/auth/password-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ xh: 'itest01', password: 'whatever' }) })
+    ok(noPw.status === 404, '未设密码账号密码登录被 404 拒绝')
+    const set1 = await req('/auth/set-password', 'POST', { next: 'testpw123' })
+    ok(set1.status === 200, '设置应用密码成功')
+    const wrong = await fetch(base + '/auth/password-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ xh: 'itest01', password: 'wrong!' }) })
+    ok(wrong.status === 401, '密码错误被 401 拒绝')
+    const right = await fetch(base + '/auth/password-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ xh: 'itest01', password: 'testpw123' }) })
+    const rb = await jbody(right)
+    ok(right.status === 200 && rb.token && rb.xh === 'itest01', '密码正确登录成功并颁发会话')
+    const me2 = await jbody(await fetch(base + '/auth/me', { headers: { Authorization: 'Bearer ' + rb.token } }))
+    ok(me2.xh === 'itest01' && me2.hasPassword === true, '新会话有效且 hasPassword=true')
+    const chg = await req('/auth/set-password', 'POST', { current: 'bad', next: 'newpw456' })
+    ok(chg.status === 401, '改密码时当前密码错误被 401 拒绝')
+    const chg2 = await req('/auth/set-password', 'POST', { current: 'testpw123', next: 'newpw456' })
+    ok(chg2.status === 200, '改密码成功（需当前密码）')
+    const relog = await jbody(await fetch(base + '/auth/password-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ xh: 'itest01', password: 'newpw456' }) }))
+    ok(!!relog.token, '新密码可登录')
+  }
 })
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`)
