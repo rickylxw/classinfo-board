@@ -17,6 +17,9 @@ import Archive from './components/Archive.vue'
 import ScheduleView from './components/ScheduleView.vue'
 import Toasts from './components/Toasts.vue'
 
+import { version } from '../package.json'
+const year = new Date().getFullYear()
+
 initStore()
 // 启动：先验证会话再亮界面；未登录一律只见只读欢迎门（无数据、无修改入口）
 const booted = ref(false)
@@ -152,6 +155,16 @@ function openSubmitAssignmentDialog(courseKey) {
     </main>
   </div>
   </template>
+
+  <!-- 页脚：欢迎门与主界面共用（启动闪屏阶段不显示） -->
+  <footer v-if="booted" class="app-footer">
+    <span>课程信息板 · v{{ version }} · 开源班级课程管理工具</span>
+    <span>
+      © {{ year }} rickylxw ·
+      <a href="https://github.com/rickylxw/classinfo-board" target="_blank" rel="noopener">GitHub 仓库</a> ·
+      <a href="https://github.com/rickylxw/classinfo-board/blob/main/LICENSE" target="_blank" rel="noopener">GPLv3</a>
+    </span>
+  </footer>
 
   <CourseDialog
     v-if="ui.dialog === 'course'"
