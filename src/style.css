@@ -409,6 +409,15 @@ button.stat { color: var(--text); }
 .admin-board-empty { font-size: 12px; padding: 4px 0; }
 .admin-sub-list { display: flex; flex-direction: column; gap: 12px; }
 .admin-sub-meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.admin-sub-group { font-size: 13px; padding: 6px 8px; background: var(--bg-soft); border-radius: 8px; }
+.admin-group { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 8px; }
+.admin-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.admin-group-label { font-weight: 600; }
+.admin-group-edit { margin-left: auto; }
+.admin-group-form { margin-top: 8px; }
+.admin-group-ops { display: flex; gap: 6px; margin-top: 8px; }
+.admin-group-pending { border-top: 1px dashed var(--warn); margin-top: 8px; padding-top: 8px; }
+.admin-group-title { font-size: 13px; font-weight: 600; color: var(--warn); margin-bottom: 6px; }
 @media (max-width: 960px) {
   .stats.five { grid-template-columns: repeat(2, 1fr); }
 }

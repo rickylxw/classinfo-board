@@ -689,7 +689,9 @@ http.createServer(async (req, res) => {
             owner: ownerXh ? maskXh(ownerXh) : null,
             assignments: (b.assignments || []).map(a => ({ id: a.id, title: a.title, deadline: a.deadline || '' })),
             files: (b.files || []).map(f => ({ id: f.id, name: f.name, size: f.size })),
-            pending: (b.pendingAssignments?.length || 0) + (b.pendingFiles?.length || 0)
+            group: b.group || null,
+            pendingGroup: b.pendingGroup ? { group: b.pendingGroup.group, xhMasked: maskXh(b.pendingGroup.xh), submittedAt: b.pendingGroup.submittedAt } : null,
+            pending: (b.pendingAssignments?.length || 0) + (b.pendingFiles?.length || 0) + (b.pendingGroup ? 1 : 0)
           })
         }
         return json(res, 200, { boards })
@@ -703,6 +705,10 @@ http.createServer(async (req, res) => {
           }
           for (const f of board.pendingFiles || []) {
             subs.push({ type: 'file', key, courseName: key.split('|')[0], teacher: key.split('|')[1] || '', ...f, xhMasked: maskXh(f.xh) })
+          }
+          if (board.pendingGroup) {
+            const pg = board.pendingGroup
+            subs.push({ type: 'group', key, courseName: key.split('|')[0], teacher: key.split('|')[1] || '', group: pg.group, xh: pg.xh, xhMasked: maskXh(pg.xh), submittedAt: pg.submittedAt })
           }
         }
         subs.sort((a, b) => a.submittedAt - b.submittedAt)

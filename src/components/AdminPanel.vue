@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import {
   adminOverview, adminShares, adminShareDecision, adminShareRevoke, adminShareAppoint,
   adminSubmissions, adminBoards, adminKick, adminDeleteAccount,
-  boardDeleteAssignment, boardDeleteFile
+  boardDeleteAssignment, boardDeleteFile,
+  saveBoardGroup, reviewBoardGroup
 } from '../api'
 import { toast } from '../store'
 import BoardReviewRow from './BoardReviewRow.vue'
@@ -54,6 +55,30 @@ const filteredAccounts = computed(() => {
   if (!q) return list
   return list.filter(a => a.xh.toLowerCase().includes(q))
 })
+
+/* 共享教学群维护（管理员与负责人同权，保存即同步全班） */
+const groupEditKey = ref(null)
+const gform = reactive({ type: 'QQ群', num: '', link: '', note: '' })
+function startGroupEdit(b) {
+  groupEditKey.value = groupEditKey.value === b.key ? null : b.key
+  gform.type = b.group?.type || 'QQ群'
+  gform.num = b.group?.num || ''
+  gform.link = b.group?.link || ''
+  gform.note = b.group?.note || ''
+}
+async function saveGroup(key) {
+  if (!gform.num.trim() && !gform.link.trim() && !gform.note.trim()) { toast('群号、链接、备注至少填一项', 'error'); return }
+  await saveBoardGroup(key, { ...gform, type: gform.type })
+  toast('教学群已保存并同步给全班')
+  groupEditKey.value = null
+  load()
+}
+async function reviewGroup(key, approve) {
+  if (!approve && !confirm('驳回该教学群修改申请？')) return
+  await reviewBoardGroup(key, approve)
+  toast(approve ? '已通过并同步给全班' : '已驳回')
+  load()
+}
 
 /* 申请状态归类：待审核 / 已通过（现任或他人任）/ 已撤销（通过但无人任）/ 已驳回 */
 function appStatus(a) {
@@ -176,11 +201,24 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
             <h3>📥 成员投稿审核 <span class="muted">（负责人未处理或未设负责人时在此审核）</span></h3>
           </div>
           <div v-if="submissions?.submissions.length" class="admin-sub-list">
-            <div v-for="s in submissions.submissions" :key="s.type + s.id">
+            <div v-for="s in submissions.submissions" :key="s.type + (s.id ?? s.submittedAt)">
               <div class="admin-sub-meta">
-                {{ s.courseName }}{{ s.teacher ? '（' + s.teacher + '）' : '' }} · {{ s.type === 'file' ? '附件投稿' : '作业投稿' }} · {{ fmt(s.submittedAt) }}
+                {{ s.courseName }}{{ s.teacher ? '（' + s.teacher + '）' : '' }} · {{ s.type === 'file' ? '附件投稿' : s.type === 'group' ? '教学群修改' : '作业投稿' }} · {{ fmt(s.submittedAt) }} · 来自 {{ s.xhMasked }}
               </div>
+              <template v-if="s.type === 'group'">
+                <div class="group-grid admin-sub-group">
+                  <span class="gl">类型</span><span class="gv"><b>{{ s.group.type || '—' }}</b></span>
+                  <span class="gl">群号/群名</span><span class="gv"><b>{{ s.group.num || '—' }}</b></span>
+                  <span class="gl">链接</span><span class="gv">{{ s.group.link || '—' }}</span>
+                  <span class="gl">备注</span><span class="gv">{{ s.group.note || '—' }}</span>
+                </div>
+                <div class="admin-group-ops">
+                  <button class="btn sm primary" @click="reviewGroup(s.key, true)">✅ 通过并同步</button>
+                  <button class="btn sm danger-ghost" @click="reviewGroup(s.key, false)">❌ 驳回</button>
+                </div>
+              </template>
               <BoardReviewRow
+                v-else
                 :board-key="s.key"
                 :item="s"
                 :type="s.type"
@@ -260,6 +298,52 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
                 </div>
                 <button class="btn sm danger-ghost" @click="delBoardItem(b.key, 'file', f.id, f.name)">删除</button>
               </div>
+
+              <!-- 待审教学群修改申请 -->
+              <div v-if="b.pendingGroup" class="admin-group-pending">
+                <div class="admin-group-title">⏳ 教学群修改申请（来自 {{ b.pendingGroup.xhMasked }}）</div>
+                <div class="group-grid">
+                  <span class="gl">类型</span><span class="gv"><b>{{ b.pendingGroup.group.type || '—' }}</b></span>
+                  <span class="gl">群号/群名</span><span class="gv"><b>{{ b.pendingGroup.group.num || '—' }}</b></span>
+                  <span class="gl">链接</span><span class="gv">{{ b.pendingGroup.group.link || '—' }}</span>
+                  <span class="gl">备注</span><span class="gv">{{ b.pendingGroup.group.note || '—' }}</span>
+                </div>
+                <div class="admin-group-ops">
+                  <button class="btn sm primary" @click="reviewGroup(b.key, true)">✅ 通过并同步</button>
+                  <button class="btn sm danger-ghost" @click="reviewGroup(b.key, false)">❌ 驳回</button>
+                </div>
+              </div>
+
+              <!-- 当前教学群 + 直接编辑 -->
+              <div class="admin-group">
+                <div class="admin-group-head">
+                  <span class="admin-group-label">👥 教学群</span>
+                  <template v-if="b.group">
+                    <span>{{ b.group.type || '—' }} · <b>{{ b.group.num || b.group.link || '—' }}</b></span>
+                    <span class="muted" :title="b.group.note">更新于 {{ fmt(b.group.updatedAt) }}</span>
+                  </template>
+                  <span v-else class="muted">未设置</span>
+                  <button class="btn sm admin-group-edit" @click="startGroupEdit(b)">✏️ {{ groupEditKey === b.key ? '收起' : '编辑' }}</button>
+                </div>
+                <div v-if="groupEditKey === b.key" class="admin-group-form">
+                  <div class="row2">
+                    <div class="field"><label>群类型</label>
+                      <select v-model="gform.type">
+                        <option>QQ群</option><option>微信群</option><option>数智东南群</option>
+                        <option>课程平台</option><option>其他</option>
+                      </select>
+                    </div>
+                    <div class="field"><label>群号 / 群名</label><input v-model="gform.num" maxlength="60" placeholder="如 741 952 836"></div>
+                  </div>
+                  <div class="field"><label>加群 / 入口链接</label><input v-model="gform.link" type="url" placeholder="https://…（可留空）"></div>
+                  <div class="field"><label>群备注</label><input v-model="gform.note" maxlength="200" placeholder="如：作业提交到群文件（可留空）"></div>
+                  <div class="admin-group-ops">
+                    <button class="btn sm primary" @click="saveGroup(b.key)">💾 保存并同步</button>
+                    <button class="btn sm" @click="groupEditKey = null">取消</button>
+                  </div>
+                </div>
+              </div>
+
               <div v-if="!b.assignments.length && !b.files.length" class="muted admin-board-empty">板上暂无已上架内容</div>
             </div>
           </div>
