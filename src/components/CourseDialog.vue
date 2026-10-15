@@ -11,10 +11,6 @@ const form = reactive({
   semester: props.course?.semester || '',
   category: props.course?.category || '',
   color: props.course?.color || PALETTE[store.courses.length % PALETTE.length],
-  gtype: props.course?.group?.type || 'QQ群',
-  gnum: props.course?.group?.num || '',
-  glink: props.course?.group?.link || '',
-  gnote: props.course?.group?.note || '',
   note: props.course?.note || ''
 })
 
@@ -27,12 +23,6 @@ function save() {
     semester: form.semester.trim(),
     category: form.category,
     color: form.color,
-    group: {
-      type: form.gtype,
-      num: form.gnum.trim(),
-      link: form.glink.trim(),
-      note: form.gnote.trim()
-    },
     note: form.note.trim()
   })
   emit('close')
@@ -70,22 +60,9 @@ function save() {
           </div>
         </div>
 
-        <h3>👥 教学群</h3>
-        <div class="row2">
-          <div class="field">
-            <label>群类型</label>
-            <select v-model="form.gtype">
-              <option>QQ群</option><option>微信群</option><option>数智东南群</option>
-              <option>课程平台</option><option>其他</option>
-            </select>
-          </div>
-          <div class="field"><label>群号 / 群名</label><input v-model="form.gnum" maxlength="60" placeholder="如 741 952 836"></div>
-        </div>
-        <div class="field"><label>加群 / 入口链接</label><input v-model="form.glink" type="url" placeholder="https://…（可留空）"></div>
-        <div class="field"><label>群备注</label><input v-model="form.gnote" maxlength="120" placeholder="如：作业提交到群文件，文件命名 学号-姓名"></div>
-
         <h3>其他</h3>
         <div class="field"><label>课程备注</label><textarea v-model="form.note" rows="2" placeholder="考试形式、成绩构成、上课时间地点…"></textarea></div>
+        <div class="muted" style="font-size:12px;">👥 教学群信息为班级共享，由课程负责人/管理员维护，不随个人课程填写。</div>
 
         <div class="dlg-actions">
           <button type="button" class="btn" @click="emit('close')">取消</button>

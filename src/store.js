@@ -273,16 +273,6 @@ export async function saveBoardGroup(key, group) {
   toast('共享教学群已保存并同步')
 }
 
-export function applySharedGroupToCourse(key, courseId) {
-  const g = store.synced[key]?.group
-  const c = courseById(courseId)
-  if (!g || !c) return
-  if (!confirm(`用共享教学群覆盖「${c.name}」的教学群信息？\n当前填写的内容会被替换。`)) return
-  c.group = { type: g.type || '其他', num: g.num || '', link: g.link || '', note: g.note || '' }
-  enqueueOps([{ op: 'upsert', coll: 'courses', items: [{ ...c }] }])
-  toast('已填入我的教学群')
-}
-
 /* 成员提交教学群信息修改申请（负责人/管理员审核通过后同步全班） */
 export async function submitBoardGroupEdit(key, group) {
   await api.submitBoardGroup(key, group)
@@ -531,8 +521,7 @@ function seedSample() {
   store.courses = [{
     id: 'c-demo', name: '示例：数据结构（可删除）', teacher: '王老师', semester: '2026-2027-1',
     category: '专业类', color: '#6366f1',
-    group: { type: 'QQ群', num: '741 952 836', link: '', note: '作业提交到群文件，命名：学号-姓名-Lab1' },
-    note: '成绩构成：平时 30% + 期末 70%\n每周三 3-4 节 · 教三 301',
+    note: '成绩构成：平时 30% + 期末 70%\n每周三 3-4 节 · 教三 301\n教学群信息在课程页「👥 教学群」卡片查看（班级共享）',
     createdAt: now
   }]
   store.assignments = [
@@ -782,6 +771,10 @@ export function importTimetable(list, { semester } = {}) {
   for (const item of list) {
     const exists = store.courses.some(c => c.name === item.name && (c.semester || '') === (semester || ''))
     if (exists) { skipped++; continue }
+    // 教学群信息为班级共享（共享板维护），个人课程不再带群字段；课程平台链接并入备注
+    const noteParts = []
+    if (item.timeText) noteParts.push(`上课时间：\n${item.timeText}`)
+    if (item.groupLink) noteParts.push(`课程平台：${item.groupLink}`)
     const c = {
       id: uid(), createdAt: Date.now(),
       name: item.name,
@@ -789,13 +782,7 @@ export function importTimetable(list, { semester } = {}) {
       semester: semester || '',
       category: item.category || '',
       color: PALETTE[store.courses.length % PALETTE.length],
-      group: {
-        type: '课程平台',
-        num: '',
-        link: item.groupLink || '',
-        note: ''
-      },
-      note: item.timeText ? `上课时间：\n${item.timeText}` : ''
+      note: noteParts.join('\n')
     }
     store.courses.push(c)
     created.push(c)

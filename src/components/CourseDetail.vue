@@ -9,7 +9,7 @@ import {
   submitExistingAssignment, submitExistingFile,
   submitBoardGroupEdit, reviewBoardGroupEdit,
   publishExistingAssignment, publishExistingFile,
-  saveBoardGroup, applySharedGroupToCourse,
+  saveBoardGroup,
   archiveSynced
 } from '../store'
 import { ddlBadge, fmtDT, fmtSize, fileIcon, copyText, courseKeyOf } from '../utils'
@@ -154,9 +154,14 @@ async function saveGroup() {
   await saveBoardGroup(courseKey.value, { ...gform, type: gform.type })
 }
 async function copySharedGroupNum() {
-  const num = synced.value?.group?.num || ''
+  const num = groupInfo.value?.num || ''
   if (num && await copyText(num)) toast('已复制：' + num)
 }
+/* 教学群全班只有共享的一份：负责人看自己维护的，成员看同步到的 */
+const groupInfo = computed(() => {
+  const g = shareInfo.value.isOwner ? (board.value?.group || null) : (synced.value?.group || null)
+  return (g && (g.num || g.link || g.note)) ? g : null
+})
 /* 成员：提交教学群信息修改申请 */
 const gsubOpen = ref(false)
 const gsub = reactive({ type: 'QQ群', num: '', link: '', note: '' })
@@ -180,10 +185,6 @@ async function submitGroupEdit() {
 }
 async function reviewGroupEdit(approve) {
   await reviewBoardGroupEdit(courseKey.value, approve)
-}
-async function copyGroup() {
-  const num = props.course.group?.num || ''
-  if (num && await copyText(num)) toast('已复制：' + num)
 }
 function fileSub(f) {
   if (f.kind === 'link') {
@@ -440,12 +441,59 @@ function fileSub(f) {
             本课还没有上架的共享内容{{ shareInfo.hasOwner ? '' : '（也未设负责人，投稿将由管理员审核）' }}；你可以直接投稿，审核通过后就会同步给全班。
           </div>
 
-          <!-- 成员提交教学群信息修改 -->
+          <!-- 投稿附件 + 我的待审投稿 -->
           <div style="margin-top:10px;">
-            <button class="btn sm" @click="toggleGroupEdit">✏️ 修改教学群信息</button>
-            <span class="muted" style="font-size:12px;margin-left:6px;">提交修改申请，经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核通过后同步给全班</span>
+            <button class="btn sm" @click="pickSubmitFiles">📤 投稿附件</button>
+            <span class="muted" style="font-size:12px;margin-left:6px;">投稿经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核通过后，会同步给全班</span>
           </div>
+          <template v-if="store.mySubs.assignments.length || store.mySubs.files.length">
+            <div style="margin-top:8px;font-size:12px;font-weight:600;color:#a16207;">⏳ 我投稿待审核（{{ store.mySubs.assignments.length + store.mySubs.files.length }}）</div>
+            <div v-for="a in store.mySubs.assignments" :key="'msa-' + a.id" class="file-item">
+              <span class="ficon">📝</span>
+              <div class="f-main"><div class="f-name" :title="a.title">{{ a.title }}</div><div class="f-sub">作业投稿</div></div>
+              <span class="badge b-week">待审核</span>
+            </div>
+            <div v-for="f in store.mySubs.files" :key="'msf-' + f.id" class="file-item">
+              <span class="ficon">{{ fileIcon(f.name, 'blob') }}</span>
+              <div class="f-main"><div class="f-name" :title="f.name">{{ f.name }}</div><div class="f-sub">{{ fmtSize(f.size) }} · 附件投稿</div></div>
+              <span class="badge b-week">待审核</span>
+            </div>
+          </template>
+          <input type="file" ref="submitInput" multiple hidden @change="onSubmitFilesChange">
+        </section>
+
+        <!-- 教学群（班级共享一份：负责人/管理员维护，成员可申请修改） -->
+        <section class="card">
+          <div class="card-head">
+            <h3>👥 教学群 <span class="muted">（班级共享 · 全班同一份）</span></h3>
+            <div class="ops">
+              <button v-if="shareInfo.isOwner" class="btn sm" title="在共享板管理的「教学群」页签维护" @click="boardTab = 'group'">👑 去维护</button>
+              <button v-else-if="session.xh && !session.isAdmin" class="btn sm" @click="toggleGroupEdit">✏️ {{ groupInfo ? '申请修改' : '申请填写' }}</button>
+            </div>
+          </div>
+          <div v-if="groupInfo" class="group-grid">
+            <span class="gl">类型</span><span class="gv"><b>{{ groupInfo.type || '—' }}</b></span>
+            <span class="gl">群号/群名</span>
+            <span class="gv">
+              <b>{{ groupInfo.num || '—' }}</b>
+              <button v-if="groupInfo.num" class="copy-btn" @click="copySharedGroupNum">复制</button>
+            </span>
+            <span class="gl">链接</span>
+            <span class="gv">
+              <a v-if="groupInfo.link" :href="groupInfo.link" target="_blank" rel="noopener">{{ groupInfo.link }}</a>
+              <template v-else>—</template>
+            </span>
+            <span class="gl">备注</span><span class="gv">{{ groupInfo.note || '—' }}</span>
+          </div>
+          <div v-else class="group-empty">
+            <span>班级还没有共享教学群</span>
+            <button v-if="shareInfo.isOwner" class="btn sm" @click="boardTab = 'group'">去维护</button>
+            <span v-else-if="session.xh && !session.isAdmin" class="muted" style="font-size:12px;">点右上角「申请填写」，经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核后同步全班</span>
+            <span v-else class="muted" style="font-size:12px;">登录后可见班级共享教学群</span>
+          </div>
+          <!-- 成员的修改申请表单与待审状态 -->
           <div v-if="gsubOpen" style="margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;">
+            <div class="muted" style="font-size:12px;margin-bottom:6px;">提交修改申请，经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核通过后同步给全班</div>
             <div class="row2">
               <div class="field"><label>群类型</label>
                 <select v-model="gsub.type">
@@ -469,74 +517,6 @@ function fileSub(f) {
               <div class="f-sub">{{ store.mySubs.group.group.num || store.mySubs.group.group.link || store.mySubs.group.group.note || '（空）' }}</div>
             </div>
             <span class="badge b-week">待审核</span>
-          </div>
-
-          <!-- 共享教学群（只读 + 一键填入） -->
-          <div v-if="synced && synced.group && (synced.group.num || synced.group.link || synced.group.note)" style="margin-top:10px;">
-            <div style="font-size:13px;font-weight:600;">
-              📢 共享教学群
-              <button class="btn sm" style="margin-left:6px;" title="用共享教学群覆盖我的教学群信息" @click="applySharedGroupToCourse(courseKey, course.id)">📋 填入我的教学群</button>
-            </div>
-            <div class="group-grid" style="margin-top:6px;">
-              <span class="gl">类型</span><span class="gv"><b>{{ synced.group.type || '—' }}</b></span>
-              <span class="gl">群号/群名</span>
-              <span class="gv">
-                <b>{{ synced.group.num || '—' }}</b>
-                <button v-if="synced.group.num" class="copy-btn" @click="copySharedGroupNum">复制</button>
-              </span>
-              <span class="gl">链接</span>
-              <span class="gv">
-                <a v-if="synced.group.link" :href="synced.group.link" target="_blank" rel="noopener">{{ synced.group.link }}</a>
-                <template v-else>—</template>
-              </span>
-              <span class="gl">备注</span><span class="gv">{{ synced.group.note || '—' }}</span>
-            </div>
-          </div>
-
-          <!-- 投稿附件 + 我的待审投稿 -->
-          <div style="margin-top:10px;">
-            <button class="btn sm" @click="pickSubmitFiles">📤 投稿附件</button>
-            <span class="muted" style="font-size:12px;margin-left:6px;">投稿经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核通过后，会同步给全班</span>
-          </div>
-          <template v-if="store.mySubs.assignments.length || store.mySubs.files.length">
-            <div style="margin-top:8px;font-size:12px;font-weight:600;color:#a16207;">⏳ 我投稿待审核（{{ store.mySubs.assignments.length + store.mySubs.files.length }}）</div>
-            <div v-for="a in store.mySubs.assignments" :key="'msa-' + a.id" class="file-item">
-              <span class="ficon">📝</span>
-              <div class="f-main"><div class="f-name" :title="a.title">{{ a.title }}</div><div class="f-sub">作业投稿</div></div>
-              <span class="badge b-week">待审核</span>
-            </div>
-            <div v-for="f in store.mySubs.files" :key="'msf-' + f.id" class="file-item">
-              <span class="ficon">{{ fileIcon(f.name, 'blob') }}</span>
-              <div class="f-main"><div class="f-name" :title="f.name">{{ f.name }}</div><div class="f-sub">{{ fmtSize(f.size) }} · 附件投稿</div></div>
-              <span class="badge b-week">待审核</span>
-            </div>
-          </template>
-          <input type="file" ref="submitInput" multiple hidden @change="onSubmitFilesChange">
-        </section>
-
-        <!-- 教学群 -->
-        <section class="card">
-          <div class="card-head">
-            <h3>👥 教学群</h3>
-            <div class="ops"><button class="btn sm" @click="emit('edit-course', course)">编辑</button></div>
-          </div>
-          <div v-if="course.group && (course.group.num || course.group.link || course.group.note)" class="group-grid">
-            <span class="gl">类型</span><span class="gv"><b>{{ course.group.type || '—' }}</b></span>
-            <span class="gl">群号/群名</span>
-            <span class="gv">
-              <b>{{ course.group.num || '—' }}</b>
-              <button v-if="course.group.num" class="copy-btn" @click="copyGroup">复制</button>
-            </span>
-            <span class="gl">链接</span>
-            <span class="gv">
-              <a v-if="course.group.link" :href="course.group.link" target="_blank" rel="noopener">{{ course.group.link }}</a>
-              <template v-else>—</template>
-            </span>
-            <span class="gl">备注</span><span class="gv">{{ course.group.note || '—' }}</span>
-          </div>
-          <div v-else class="group-empty">
-            <span>未填写教学群信息</span>
-            <button class="btn sm" @click="emit('edit-course', course)">去填写</button>
           </div>
         </section>
 
