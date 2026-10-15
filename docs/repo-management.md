@@ -61,5 +61,6 @@
 
 ## 7. 已知风险与待办
 
-1. **`backend/test-group.mjs` 直写生产 `shares.json`**（读-改-写绕过原子写入与服务器内存态，可能被后端下次保存覆盖或反向污染）。按 SECURITY.md 的隔离原则，测试应改用 `DATA_DIR` 隔离实例 + 预置 token（`test-sync.mjs` 已是正确示范）。待重构。
-2. `test-share.mjs` / `test-submit.mjs` 仍直连 5174 生产后端发起请求（不写文件，风险较低），后续一并迁到隔离实例。
+1. ~~`backend/test-group.mjs` 直写生产 `shares.json`~~ **已解决（2026-10-15）**：四个测试脚本（test-sync / test-share / test-submit / test-group）已全部迁移到 `test-util.mjs` 隔离实例（临时 DATA_DIR + 随机会话种子 + 随机管理员密码，自动起停清理），生产 `backend/data/` 不再被任何测试触碰。
+2. ~~`test-share.mjs` / `test-submit.mjs` 仍直连 5174 生产后端~~ **已解决（2026-10-15）**：同上，全部经 `withTestServer` 起隔离实例运行，直接 `node backend/test-*.mjs` 即可。
+3. `restore-boards.mjs`（一次性的 shares.json 事故恢复脚本）内嵌真实共享板内容，已移出入库至 `backend/manual-backups/`（gitignored）；如再次需要事故恢复，参照该脚本思路现场编写，勿把含真实数据的脚本入库。
