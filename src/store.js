@@ -316,19 +316,31 @@ export async function downloadBoardFile(key, id, name) {
   }
 }
 
-/* ---------- 共享教学群（负责人/管理员维护，随板同步；成员可一键填入自己的教学群） ---------- */
-export async function saveBoardGroup(key, group) {
-  await api.saveBoardGroup(key, group)
+/* ---------- 共享教学群（多群：一门课可挂多个群，负责人/管理员维护，随板同步） ---------- */
+export async function boardAddGroup(key, group) {
+  await api.boardAddGroup(key, group)
   await loadBoard(key)
   fetchSyncs()
-  toast('共享教学群已保存并同步')
+  toast('共享教学群已添加并同步')
+}
+export async function boardUpdateGroup(key, id, group) {
+  await api.boardUpdateGroup(key, id, group)
+  await loadBoard(key)
+  fetchSyncs()
+  toast('共享教学群已更新并同步')
+}
+export async function boardRemoveGroup(key, id) {
+  await api.boardRemoveGroup(key, id)
+  await loadBoard(key)
+  fetchSyncs()
+  toast('已删除该共享教学群')
 }
 
-/* 成员提交教学群信息修改申请（负责人/管理员审核通过后同步全班） */
-export async function submitBoardGroupEdit(key, group) {
-  await api.submitBoardGroup(key, group)
+/* 成员提交教学群申请（add=贡献新群 / edit=修改已有群，审核通过后同步全班） */
+export async function submitGroupProposal(key, action, group, id) {
+  await api.submitBoardGroup(key, action, group, id)
   await loadMySubmissions(key)
-  toast('教学群修改申请已提交，等待审核')
+  toast(action === 'edit' ? '教学群修改申请已提交，等待审核' : '教学群添加申请已提交，等待审核')
 }
 export async function reviewBoardGroupEdit(key, approve) {
   await api.reviewBoardGroup(key, approve)

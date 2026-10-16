@@ -412,6 +412,16 @@ async function loadShares() {
     shares.owners = data.owners && typeof data.owners === 'object' ? data.owners : {}
     shares.boards = data.boards && typeof data.boards === 'object' ? data.boards : {}
   }
+  // 教学群多群模型迁移：旧的单个 group（若有内容）并入 groups 首位；旧待审申请按「修改」处理
+  for (const b of Object.values(shares.boards)) {
+    if (!Array.isArray(b.groups)) {
+      b.groups = groupHasContent(b.group)
+        ? [{ id: crypto.randomBytes(8).toString('hex'), ...sanitizeGroup(b.group), updatedAt: b.group.updatedAt || Date.now() }]
+        : []
+    }
+    b.group = null
+    if (b.pendingGroup && !b.pendingGroup.action) b.pendingGroup.action = 'edit'
+  }
 }
 async function saveShares() {
   let persisted = false
@@ -426,7 +436,15 @@ async function saveShares() {
   // 账号数据（/data、/data/ops）走 saveAccount，不经此处，不会误广播。
   if (persisted && sseClients.size) sseBroadcast()
 }
-const boardOf = key => (shares.boards[key] = shares.boards[key] || { assignments: [], files: [], pendingAssignments: [], pendingFiles: [], group: null, pendingGroup: null })
+const boardOf = key => (shares.boards[key] = shares.boards[key] || { assignments: [], files: [], pendingAssignments: [], pendingFiles: [], groups: [], group: null, pendingGroup: null })
+/* 教学群多群模型：boards[key].groups = [{id,type,num,link,note,updatedAt}...]，一门课可挂多个群 */
+const sanitizeGroup = g => ({
+  type: String(g?.type || '').slice(0, 20),
+  num: String(g?.num || '').slice(0, 60),
+  link: String(g?.link || '').slice(0, 300),
+  note: String(g?.note || '').slice(0, 200)
+})
+const groupHasContent = g => !!(g && (g.num || g.link || g.note))
 const keyHash = key => crypto.createHash('sha256').update('board:' + key).digest('hex').slice(0, 16)
 const boardDir = key => path.join(FILES_DIR, 'board', keyHash(key))
 const isOwner = (xh, key) => shares.owners[key] === xh
@@ -445,7 +463,7 @@ async function syncForMe(myXh) {
     const key = courseKey(c)
     const board = shares.boards[key]
     if (!board) continue
-    const hasGroup = board.group && (board.group.num || board.group.link || board.group.note)
+    const hasGroup = (board.groups || []).some(groupHasContent)
     if (!board.assignments?.length && !board.files?.length && !hasGroup) continue   // 板上还没有任何上架内容时不推送空同步
     const ownerXh = shares.owners[key]
     if (ownerXh === myXh) continue   // 负责人自己走管理卡片，不重复下发
@@ -453,7 +471,8 @@ async function syncForMe(myXh) {
       key,
       ref: keyHash(key),
       from: ownerXh ? maskXh(ownerXh) : '管理员',
-      group: board.group || null,
+      groups: board.groups || [],
+      group: (board.groups || []).find(groupHasContent) || null,   // 旧前端兼容：首个有内容的群
       assignments: (board.assignments || []).map(a => ({
         id: a.id, title: a.title, deadline: a.deadline || '', requirement: a.requirement || ''
       })),
@@ -739,8 +758,9 @@ http.createServer(async (req, res) => {
             owner: ownerXh ? maskXh(ownerXh) : null,
             assignments: (b.assignments || []).map(a => ({ id: a.id, title: a.title, deadline: a.deadline || '' })),
             files: (b.files || []).map(f => ({ id: f.id, name: f.name, size: f.size })),
+            groups: (b.groups || []).map(g => ({ type: g.type, num: g.num, note: g.note })),
             group: b.group || null,
-            pendingGroup: b.pendingGroup ? { group: b.pendingGroup.group, xhMasked: maskXh(b.pendingGroup.xh), submittedAt: b.pendingGroup.submittedAt } : null,
+            pendingGroup: b.pendingGroup ? { action: b.pendingGroup.action || 'edit', id: b.pendingGroup.id, group: b.pendingGroup.group, xhMasked: maskXh(b.pendingGroup.xh), submittedAt: b.pendingGroup.submittedAt } : null,
             pending: (b.pendingAssignments?.length || 0) + (b.pendingFiles?.length || 0) + (b.pendingGroup ? 1 : 0)
           })
         }
@@ -1037,28 +1057,68 @@ http.createServer(async (req, res) => {
       })
     }
 
-    /* 共享教学群：负责人或管理员维护，随板同步 */
+    /* 共享教学群（多群）：一门课可挂多个群；负责人或管理员维护，随板同步 */
+    if (p === '/board/group/add' && req.method === 'POST') {
+      const as = auth(req)
+      if (!as) return json(res, 401, { error: '未登录或会话过期' })
+      const body = await readJson(req, 65536)
+      const key = norm(body.key)
+      if (!as.admin && !isOwner(as.xh, key)) return json(res, 403, { error: '仅课程负责人或管理员可维护共享教学群' })
+      const g = sanitizeGroup(body.group)
+      if (!groupHasContent(g)) return json(res, 400, { error: '群号、链接、备注至少填一项' })
+      const board = boardOf(key)
+      if ((board.groups || []).length >= 10) return json(res, 400, { error: '一门课最多挂 10 个群，请先清理' })
+      const entry = { id: crypto.randomBytes(8).toString('hex'), ...g, updatedAt: Date.now() }
+      board.groups = [...(board.groups || []), entry]
+      saveShares()
+      console.log(`[board] ${as.admin ? '管理员' : '负责人'}添加共享教学群 ${key} :: ${g.type} ${g.num}`)
+      return json(res, 200, { ok: true, group: entry })
+    }
+    if (p === '/board/group/update' && req.method === 'POST') {
+      const as = auth(req)
+      if (!as) return json(res, 401, { error: '未登录或会话过期' })
+      const body = await readJson(req, 65536)
+      const key = norm(body.key)
+      if (!as.admin && !isOwner(as.xh, key)) return json(res, 403, { error: '仅课程负责人或管理员可维护共享教学群' })
+      const board = boardOf(key)
+      const entry = (board.groups || []).find(x => x.id === body.id)
+      if (!entry) return json(res, 404, { error: '该教学群不存在或已删除' })
+      const g = sanitizeGroup(body.group)
+      if (!groupHasContent(g)) return json(res, 400, { error: '群号、链接、备注至少填一项' })
+      Object.assign(entry, g, { updatedAt: Date.now() })
+      saveShares()
+      console.log(`[board] ${as.admin ? '管理员' : '负责人'}更新共享教学群 ${key} :: ${g.type} ${g.num}`)
+      return json(res, 200, { ok: true, group: entry })
+    }
+    if (p === '/board/group/delete' && req.method === 'POST') {
+      const as = auth(req)
+      if (!as) return json(res, 401, { error: '未登录或会话过期' })
+      const body = await readJson(req, 65536)
+      const key = norm(body.key)
+      if (!as.admin && !isOwner(as.xh, key)) return json(res, 403, { error: '仅课程负责人或管理员可维护共享教学群' })
+      const board = boardOf(key)
+      board.groups = (board.groups || []).filter(x => x.id !== body.id)
+      saveShares()
+      return json(res, 200, { ok: true })
+    }
+    /* 旧版单群保存（兼容旧前端）：有内容 = 整表替换为这一个群，无内容 = 清空 */
     if (p === '/board/group/save' && req.method === 'POST') {
       const as = auth(req)
       if (!as) return json(res, 401, { error: '未登录或会话过期' })
       const body = await readJson(req, 65536)
       const key = norm(body.key)
       if (!as.admin && !isOwner(as.xh, key)) return json(res, 403, { error: '仅课程负责人或管理员可维护共享教学群' })
-      const g = body.group || {}
+      const g = sanitizeGroup(body.group)
       const board = boardOf(key)
-      board.group = {
-        type: String(g.type || '').slice(0, 20),
-        num: String(g.num || '').slice(0, 60),
-        link: String(g.link || '').slice(0, 300),
-        note: String(g.note || '').slice(0, 200),
-        updatedAt: Date.now()
-      }
+      board.groups = groupHasContent(g)
+        ? [{ id: crypto.randomBytes(8).toString('hex'), ...g, updatedAt: Date.now() }]
+        : []
       saveShares()
       console.log(`[board] ${as.admin ? '管理员' : '负责人'}更新共享教学群 ${key}`)
-      return json(res, 200, { ok: true, group: board.group })
+      return json(res, 200, { ok: true, groups: board.groups })
     }
 
-    /* 成员提交教学群修改申请（负责人/管理员直接保存，不走申请） */
+    /* 成员提交教学群申请（add=贡献一个新群 / edit=修改已有群；负责人/管理员直接维护，不走申请） */
     if (p === '/board/group/submit' && req.method === 'POST') {
       const s = userAuth(req)
       if (!s) return json(res, 401, { error: '未登录或会话过期' })
@@ -1068,22 +1128,25 @@ http.createServer(async (req, res) => {
       const isMember = (me?.data?.courses || []).some(c => courseKey(c) === key)
       if (!isMember) return json(res, 403, { error: '仅本课程成员可提交修改申请' })
       if (isOwner(s.xh, key)) return json(res, 400, { error: '你是课程负责人，可直接编辑保存' })
-      const g = body.group || {}
+      const action = body.action === 'edit' ? 'edit' : 'add'
+      const g = sanitizeGroup(body.group)
+      if (!groupHasContent(g)) return json(res, 400, { error: '群号、链接、备注至少填一项' })
+      const board = boardOf(key)
+      if (action === 'edit' && !(board.groups || []).some(x => x.id === body.id)) {
+        return json(res, 404, { error: '要修改的教学群不存在（可能刚被删除），请刷新后重试' })
+      }
       boardOf(key).pendingGroup = {
-        group: {
-          type: String(g.type || '').slice(0, 20),
-          num: String(g.num || '').slice(0, 60),
-          link: String(g.link || '').slice(0, 300),
-          note: String(g.note || '').slice(0, 200)
-        },
+        action,
+        ...(action === 'edit' ? { id: body.id } : {}),
+        group: g,
         xh: s.xh,
         submittedAt: Date.now()
       }
       saveShares()
-      console.log(`[board] ${s.xh} 提交教学群修改申请 ${key}`)
+      console.log(`[board] ${s.xh} 提交教学群${action === 'edit' ? '修改' : '添加'}申请 ${key}`)
       return json(res, 200, { ok: true })
     }
-    /* 负责人或管理员审核教学群修改申请 */
+    /* 负责人或管理员审核教学群申请：通过 = 按动作入列/更新 */
     if (p === '/board/group/review' && req.method === 'POST') {
       const as = auth(req)
       if (!as) return json(res, 401, { error: '未登录或会话过期' })
@@ -1096,11 +1159,19 @@ http.createServer(async (req, res) => {
       board.pendingGroup = null
       let published = false
       if (body.approve) {
-        board.group = { ...pg.group, updatedAt: Date.now() }
-        published = true
+        if (pg.action === 'edit' && pg.id) {
+          const entry = (board.groups || []).find(x => x.id === pg.id)
+          if (entry) {
+            Object.assign(entry, pg.group, { updatedAt: Date.now() })
+            published = true
+          }
+        } else {
+          board.groups = [...(board.groups || []), { id: crypto.randomBytes(8).toString('hex'), ...pg.group, updatedAt: Date.now() }]
+          published = true
+        }
       }
       saveShares()
-      console.log(`[board] ${as.admin ? '管理员' : '负责人'}${body.approve ? '通过' : '驳回'}教学群修改 ${key}`)
+      console.log(`[board] ${as.admin ? '管理员' : '负责人'}${body.approve ? '通过' : '驳回'}教学群申请 ${key}`)
       return json(res, 200, { ok: true, published })
     }
 

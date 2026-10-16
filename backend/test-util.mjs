@@ -24,10 +24,14 @@ import { fileURLToPath } from 'node:url'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs')
 
-export async function withTestServer(users, fn) {
+export async function withTestServer(users, fn, opts = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'classinfo-test-'))
   const dataDir = path.join(root, 'data')
   fs.mkdirSync(path.join(dataDir, 'accounts'), { recursive: true })
+  if (opts.seedShares) {
+    // 预置 shares.json（如旧版单群数据，验证启动迁移）
+    fs.writeFileSync(path.join(dataDir, 'shares.json'), JSON.stringify(opts.seedShares))
+  }
 
   const tokenOf = {}
   const sessions = {}

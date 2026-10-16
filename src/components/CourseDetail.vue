@@ -7,9 +7,9 @@ import {
   loadBoard, boardSaveAssignment, boardRemoveAssignment, boardAddFile, boardRemoveFile, downloadBoardFile,
   submitBoardFile, loadMySubmissions,
   submitExistingAssignment, submitExistingFile,
-  submitBoardGroupEdit, reviewBoardGroupEdit,
+  submitGroupProposal, reviewBoardGroupEdit,
   publishExistingAssignment, publishExistingFile,
-  saveBoardGroup,
+  boardAddGroup, boardUpdateGroup, boardRemoveGroup,
   archiveSynced
 } from '../store'
 import { ddlBadge, fmtDT, fmtSize, fileIcon, courseKeyOf, openGroupChat } from '../utils'
@@ -136,54 +136,65 @@ async function onSubmitFilesChange(e) {
   for (const f of e.target.files) await submitBoardFile(courseKey.value, f)
   loadMySubmissions(courseKey.value)
 }
-/* 负责人维护共享教学群 */
+/* 负责人维护共享教学群（可挂多个）：添加 / 编辑 / 删除 */
 const gform = reactive({ type: 'QQ群', num: '', link: '', note: '' })
-watch(board, g => {
-  if (g?.group) {
-    gform.type = g.group.type || 'QQ群'
-    gform.num = g.group.num || ''
-    gform.link = g.group.link || ''
-    gform.note = g.group.note || ''
-  }
-}, { immediate: true })
+const editingId = ref('')   // 非空 = 正在编辑这个群
 async function saveGroup() {
   if (!gform.num.trim() && !gform.link.trim() && !gform.note.trim()) {
     toast('群号、链接、备注至少填一项', 'error')
     return
   }
-  await saveBoardGroup(courseKey.value, { ...gform, type: gform.type })
+  if (editingId.value) await boardUpdateGroup(courseKey.value, editingId.value, { ...gform })
+  else await boardAddGroup(courseKey.value, { ...gform })
+  resetGroupForm()
+}
+function editGroup(g) {
+  editingId.value = g.id
+  Object.assign(gform, { type: g.type || 'QQ群', num: g.num || '', link: g.link || '', note: g.note || '' })
+}
+function resetGroupForm() {
+  editingId.value = ''
+  Object.assign(gform, { type: 'QQ群', num: '', link: '', note: '' })
+}
+async function removeGroup(id) {
+  if (!confirm('删除这个共享教学群？全班同学都会同步删除。')) return
+  await boardRemoveGroup(courseKey.value, id)
 }
 /* 点击群号：复制并尽力跳转到对应应用 */
-async function jumpGroup() {
-  const g = groupInfo.value
+async function jumpGroup(g) {
   if (!g?.num) return
   const msg = await openGroupChat(g.type, g.num)
   if (msg) toast(msg)
 }
-/* 教学群全班只有共享的一份：负责人看自己维护的，成员看同步到的 */
-const groupInfo = computed(() => {
-  const g = shareInfo.value.isOwner ? (board.value?.group || null) : (synced.value?.group || null)
-  return (g && (g.num || g.link || g.note)) ? g : null
+/* 教学群（可多个）：负责人看自己维护的列表，成员看同步到的列表 */
+const groupList = computed(() => {
+  const list = shareInfo.value.isOwner
+    ? (board.value?.groups || [])
+    : (synced.value?.groups || (synced.value?.group ? [synced.value.group] : []))
+  return list.filter(g => g.num || g.link || g.note)
 })
-/* 成员：提交教学群信息修改申请 */
+/* 成员：提交教学群申请（add=贡献新群 / edit=修改已有群） */
 const gsubOpen = ref(false)
+const gsubAction = ref('add')
+const gsubId = ref('')
 const gsub = reactive({ type: 'QQ群', num: '', link: '', note: '' })
-function toggleGroupEdit() {
-  gsubOpen.value = !gsubOpen.value
-  if (gsubOpen.value) {
-    const g = synced.value?.group
-    gsub.type = g?.type || 'QQ群'
-    gsub.num = g?.num || ''
-    gsub.link = g?.link || ''
-    gsub.note = g?.note || ''
-  }
+function openGroupProposal(action = 'add', g = null) {
+  gsubAction.value = action
+  gsubId.value = action === 'edit' && g ? g.id : ''
+  gsubOpen.value = true
+  Object.assign(gsub, {
+    type: (action === 'edit' && g ? g.type : '') || 'QQ群',
+    num: g?.num || '',
+    link: g?.link || '',
+    note: g?.note || ''
+  })
 }
 async function submitGroupEdit() {
   if (!gsub.num.trim() && !gsub.link.trim() && !gsub.note.trim()) {
     toast('群号、链接、备注至少填一项', 'error')
     return
   }
-  await submitBoardGroupEdit(courseKey.value, { ...gsub })
+  await submitGroupProposal(courseKey.value, gsubAction.value, { ...gsub }, gsubId.value)
   gsubOpen.value = false
 }
 async function reviewGroupEdit(approve) {
@@ -394,10 +405,10 @@ function fileSub(f) {
             <input type="file" ref="boardInput" multiple hidden @change="onBoardFilesChange">
           </template>
 
-          <!-- 共享教学群 -->
+          <!-- 共享教学群（可挂多个） -->
           <template v-if="boardTab === 'group'">
             <template v-if="board?.pendingGroup">
-              <div style="font-size:13px;font-weight:600;color:#a16207;">⏳ 教学群修改申请（来自 {{ maskXh(board.pendingGroup.xh) }}）</div>
+              <div style="font-size:13px;font-weight:600;color:#a16207;">⏳ 教学群{{ board.pendingGroup.action === 'edit' ? '修改' : '添加' }}申请（来自 {{ maskXh(board.pendingGroup.xh) }}）</div>
               <div class="group-grid" style="margin:6px 0 8px;">
                 <span class="gl">类型</span><span class="gv"><b>{{ board.pendingGroup.group.type || '—' }}</b></span>
                 <span class="gl">群号/群名</span><span class="gv"><b>{{ board.pendingGroup.group.num || '—' }}</b></span>
@@ -409,19 +420,38 @@ function fileSub(f) {
                 <button class="btn sm danger-ghost" @click="reviewGroupEdit(false)">❌ 驳回</button>
               </div>
             </template>
-            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">当前共享教学群 <span class="muted">（保存后立即同步给全班）</span></div>
-            <div class="row2">
-              <div class="field"><label>群类型</label>
-                <select v-model="gform.type">
-                  <option>QQ群</option><option>微信群</option><option>数智东南群</option>
-                  <option>课程平台</option><option>其他</option>
-                </select>
+            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">共享教学群（可挂多个） <span class="muted">（改动立即同步给全班）</span></div>
+            <div v-for="g in board?.groups || []" :key="g.id" class="group-item">
+              <div class="group-grid" style="flex:1;">
+                <span class="gl">类型</span><span class="gv"><b>{{ g.type || '—' }}</b></span>
+                <span class="gl">群号/群名</span><span class="gv"><b>{{ g.num || '—' }}</b></span>
+                <span class="gl">链接</span><span class="gv">{{ g.link || '—' }}</span>
+                <span class="gl">备注</span><span class="gv">{{ g.note || '—' }}</span>
               </div>
-              <div class="field"><label>群号 / 群名</label><input v-model="gform.num" maxlength="60" placeholder="如 741 952 836"></div>
+              <div class="asg-ops">
+                <button class="icon-btn" title="编辑" @click="editGroup(g)">✏️</button>
+                <button class="icon-btn" title="删除" @click="removeGroup(g.id)">🗑️</button>
+              </div>
             </div>
-            <div class="field"><label>加群 / 入口链接</label><input v-model="gform.link" type="url" placeholder="https://…（可留空）"></div>
-            <div class="field"><label>群备注</label><input v-model="gform.note" maxlength="200" placeholder="如：作业提交到群文件（可留空）"></div>
-            <button class="btn sm primary" @click="saveGroup">💾 保存共享教学群</button>
+            <div v-if="!(board?.groups || []).length" class="muted" style="font-size:12px;">还没有共享教学群，在下方添加第一个</div>
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">
+              <div style="font-size:13px;font-weight:600;margin-bottom:6px;">{{ editingId ? '✏️ 编辑群' : '➕ 添加一个群' }}</div>
+              <div class="row2">
+                <div class="field"><label>群类型</label>
+                  <select v-model="gform.type">
+                    <option>QQ群</option><option>微信群</option><option>数智东南群</option>
+                    <option>课程平台</option><option>其他</option>
+                  </select>
+                </div>
+                <div class="field"><label>群号 / 群名</label><input v-model="gform.num" maxlength="60" placeholder="如 741 952 836"></div>
+              </div>
+              <div class="field"><label>加群 / 入口链接</label><input v-model="gform.link" type="url" placeholder="https://…（可留空）"></div>
+              <div class="field"><label>群备注</label><input v-model="gform.note" maxlength="200" placeholder="如：作业提交到群文件（可留空）"></div>
+              <div style="display:flex;gap:6px;">
+                <button class="btn sm primary" @click="saveGroup">{{ editingId ? '💾 保存修改' : '➕ 添加这个群' }}</button>
+                <button v-if="editingId" class="btn sm" @click="resetGroupForm">取消编辑</button>
+              </div>
+            </div>
           </template>
         </section>
 
@@ -465,38 +495,45 @@ function fileSub(f) {
           <input type="file" ref="submitInput" multiple hidden @change="onSubmitFilesChange">
         </section>
 
-        <!-- 教学群（班级共享一份：负责人/管理员维护，成员可申请修改） -->
+        <!-- 教学群（班级共享，可挂多个：负责人/管理员维护，成员可申请添加/修改） -->
         <section class="card">
           <div class="card-head">
-            <h3>👥 教学群 <span class="muted">（班级共享 · 全班同一份）</span></h3>
+            <h3>👥 教学群 <span class="muted">（班级共享 · 可挂多个）</span></h3>
             <div class="ops">
               <button v-if="shareInfo.isOwner" class="btn sm" title="在共享板管理的「教学群」页签维护" @click="boardTab = 'group'">👑 去维护</button>
-              <button v-else-if="session.xh && !session.isAdmin" class="btn sm" @click="toggleGroupEdit">✏️ {{ groupInfo ? '申请修改' : '申请填写' }}</button>
+              <button v-else-if="session.xh && !session.isAdmin" class="btn sm" @click="openGroupProposal('add')">✏️ 申请添加群</button>
             </div>
           </div>
-          <div v-if="groupInfo" class="group-grid">
-            <span class="gl">类型</span><span class="gv"><b>{{ groupInfo.type || '—' }}</b></span>
-            <span class="gl">群号/群名</span>
-            <span class="gv">
-              <b v-if="groupInfo.num" class="jump-link" title="点击复制群号并打开对应应用" @click="jumpGroup">{{ groupInfo.num }}</b>
-              <template v-else>—</template>
-            </span>
-            <span class="gl">链接</span>
-            <span class="gv">
-              <a v-if="groupInfo.link" class="jump-link" :href="groupInfo.link" target="_blank" rel="noopener" title="点击打开链接">{{ groupInfo.link }}</a>
-              <template v-else>—</template>
-            </span>
-            <span class="gl">备注</span><span class="gv">{{ groupInfo.note || '—' }}</span>
+          <div v-if="groupList.length">
+            <div v-for="(g, i) in groupList" :key="g.id || i" class="group-item">
+              <div class="group-grid" style="flex:1;">
+                <span class="gl">类型</span><span class="gv"><b>{{ g.type || '—' }}</b></span>
+                <span class="gl">群号/群名</span>
+                <span class="gv">
+                  <b v-if="g.num" class="jump-link" title="点击复制群号并打开对应应用" @click="jumpGroup(g)">{{ g.num }}</b>
+                  <template v-else>—</template>
+                </span>
+                <span class="gl">链接</span>
+                <span class="gv">
+                  <a v-if="g.link" class="jump-link" :href="g.link" target="_blank" rel="noopener" title="点击打开链接">{{ g.link }}</a>
+                  <template v-else>—</template>
+                </span>
+                <span class="gl">备注</span><span class="gv">{{ g.note || '—' }}</span>
+              </div>
+              <div v-if="session.xh && !session.isAdmin && !shareInfo.isOwner" class="asg-ops">
+                <button class="icon-btn" title="申请修改这个群" @click="openGroupProposal('edit', g)">✏️</button>
+              </div>
+            </div>
           </div>
           <div v-else class="group-empty">
             <span>班级还没有共享教学群</span>
             <button v-if="shareInfo.isOwner" class="btn sm" @click="boardTab = 'group'">去维护</button>
-            <span v-else-if="session.xh && !session.isAdmin" class="muted" style="font-size:12px;">点右上角「申请填写」，经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核后同步全班</span>
+            <span v-else-if="session.xh && !session.isAdmin" class="muted" style="font-size:12px;">点右上角「申请添加群」，经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核后同步全班</span>
             <span v-else class="muted" style="font-size:12px;">登录后可见班级共享教学群</span>
           </div>
-          <!-- 成员的修改申请表单与待审状态 -->
+          <!-- 成员的申请表单与待审状态 -->
           <div v-if="gsubOpen" style="margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;">
-            <div class="muted" style="font-size:12px;margin-bottom:6px;">提交修改申请，经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核通过后同步给全班</div>
+            <div class="muted" style="font-size:12px;margin-bottom:6px;">{{ gsubAction === 'edit' ? '申请修改这个群' : '申请添加一个新群' }}，经{{ shareInfo.hasOwner ? '课程负责人' : '管理员' }}审核通过后同步给全班</div>
             <div class="row2">
               <div class="field"><label>群类型</label>
                 <select v-model="gsub.type">
@@ -509,14 +546,14 @@ function fileSub(f) {
             <div class="field"><label>加群 / 入口链接</label><input v-model="gsub.link" type="url" placeholder="https://…（可留空）"></div>
             <div class="field"><label>群备注</label><input v-model="gsub.note" maxlength="200" placeholder="可留空"></div>
             <div style="display:flex;gap:6px;">
-              <button class="btn sm primary" @click="submitGroupEdit">提交修改申请</button>
+              <button class="btn sm primary" @click="submitGroupEdit">提交{{ gsubAction === 'edit' ? '修改' : '添加' }}申请</button>
               <button class="btn sm" @click="gsubOpen = false">收起</button>
             </div>
           </div>
           <div v-if="store.mySubs.group" class="file-item" style="margin-top:8px;">
             <span class="ficon">📢</span>
             <div class="f-main">
-              <div class="f-name">教学群信息修改</div>
+              <div class="f-name">{{ store.mySubs.group.action === 'edit' ? '教学群信息修改' : '教学群添加' }}</div>
               <div class="f-sub">{{ store.mySubs.group.group.num || store.mySubs.group.group.link || store.mySubs.group.group.note || '（空）' }}</div>
             </div>
             <span class="badge b-week">待审核</span>

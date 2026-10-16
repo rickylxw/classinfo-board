@@ -64,8 +64,12 @@ export const boardDeleteAssignment = (key, id) => req('/board/assignment/delete'
 export const boardUploadFile = (key, name, blob) =>
   req('/board/file/upload?key=' + encodeURIComponent(key) + '&name=' + encodeURIComponent(name), { method: 'PUT', body: blob })
 export const boardDeleteFile = (key, id) => req('/board/file/delete', { method: 'POST', body: { key, id } })
-export const saveBoardGroup = (key, group) => req('/board/group/save', { method: 'POST', body: { key, group } })
-export const submitBoardGroup = (key, group) => req('/board/group/submit', { method: 'POST', body: { key, group } })
+/* 共享教学群（多群：一门课可挂多个群） */
+export const boardAddGroup = (key, group) => req('/board/group/add', { method: 'POST', body: { key, group } })
+export const boardUpdateGroup = (key, id, group) => req('/board/group/update', { method: 'POST', body: { key, id, group } })
+export const boardRemoveGroup = (key, id) => req('/board/group/delete', { method: 'POST', body: { key, id } })
+export const submitBoardGroup = (key, action, group, id) =>
+  req('/board/group/submit', { method: 'POST', body: { key, action, group, ...(action === 'edit' ? { id } : {}) } })
 export const reviewBoardGroup = (key, approve) => req('/board/group/review', { method: 'POST', body: { key, approve } })
 /* 成员投稿（待负责人审核） */
 export const submitBoardAssignment = (key, data) => req('/board/assignment/submit', { method: 'POST', body: { key, ...data } })

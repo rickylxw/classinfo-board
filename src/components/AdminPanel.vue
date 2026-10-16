@@ -4,7 +4,7 @@ import {
   adminOverview, adminShares, adminShareDecision, adminShareRevoke, adminShareAppoint,
   adminSubmissions, adminBoards, adminKick, adminDeleteAccount,
   boardDeleteAssignment, boardDeleteFile,
-  saveBoardGroup, reviewBoardGroup
+  boardAddGroup, boardUpdateGroup, boardRemoveGroup, reviewBoardGroup
 } from '../api'
 import { toast } from '../store'
 import BoardReviewRow from './BoardReviewRow.vue'
@@ -56,21 +56,35 @@ const filteredAccounts = computed(() => {
   return list.filter(a => a.xh.toLowerCase().includes(q))
 })
 
-/* 共享教学群维护（管理员与负责人同权，保存即同步全班） */
+/* 共享教学群维护（多群：一门课可挂多个；管理员与负责人同权，改动即同步全班） */
 const groupEditKey = ref(null)
+const editingGid = ref('')   // 非空 = 正在编辑这个群
 const gform = reactive({ type: 'QQ群', num: '', link: '', note: '' })
-function startGroupEdit(b) {
-  groupEditKey.value = groupEditKey.value === b.key ? null : b.key
-  gform.type = b.group?.type || 'QQ群'
-  gform.num = b.group?.num || ''
-  gform.link = b.group?.link || ''
-  gform.note = b.group?.note || ''
+function toggleGroupPanel(key) {
+  groupEditKey.value = groupEditKey.value === key ? null : key
+  resetGroupForm()
+}
+function startGroupEdit(b, g) {
+  groupEditKey.value = b.key
+  editingGid.value = g.id
+  Object.assign(gform, { type: g.type || 'QQ群', num: g.num || '', link: g.link || '', note: g.note || '' })
+}
+function resetGroupForm() {
+  editingGid.value = ''
+  Object.assign(gform, { type: 'QQ群', num: '', link: '', note: '' })
 }
 async function saveGroup(key) {
   if (!gform.num.trim() && !gform.link.trim() && !gform.note.trim()) { toast('群号、链接、备注至少填一项', 'error'); return }
-  await saveBoardGroup(key, { ...gform, type: gform.type })
+  if (editingGid.value) await boardUpdateGroup(key, editingGid.value, { ...gform })
+  else await boardAddGroup(key, { ...gform })
   toast('教学群已保存并同步给全班')
-  groupEditKey.value = null
+  resetGroupForm()
+  load()
+}
+async function removeGroup(key, id) {
+  if (!confirm('删除这个共享教学群？全班同步删除。')) return
+  await boardRemoveGroup(key, id)
+  toast('已删除该共享教学群')
   load()
 }
 async function reviewGroup(key, approve) {
@@ -299,9 +313,9 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
                 <button class="btn sm danger-ghost" @click="delBoardItem(b.key, 'file', f.id, f.name)">删除</button>
               </div>
 
-              <!-- 待审教学群修改申请 -->
+              <!-- 待审教学群申请 -->
               <div v-if="b.pendingGroup" class="admin-group-pending">
-                <div class="admin-group-title">⏳ 教学群修改申请（来自 {{ b.pendingGroup.xhMasked }}）</div>
+                <div class="admin-group-title">⏳ 教学群{{ b.pendingGroup.action === 'edit' ? '修改' : '添加' }}申请（来自 {{ b.pendingGroup.xhMasked }}）</div>
                 <div class="group-grid">
                   <span class="gl">类型</span><span class="gv"><b>{{ b.pendingGroup.group.type || '—' }}</b></span>
                   <span class="gl">群号/群名</span><span class="gv"><b>{{ b.pendingGroup.group.num || '—' }}</b></span>
@@ -314,18 +328,25 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
                 </div>
               </div>
 
-              <!-- 当前教学群 + 直接编辑 -->
+              <!-- 教学群（可挂多个）+ 直接编辑 -->
               <div class="admin-group">
                 <div class="admin-group-head">
-                  <span class="admin-group-label">👥 教学群</span>
-                  <template v-if="b.group">
-                    <span>{{ b.group.type || '—' }} · <b>{{ b.group.num || b.group.link || '—' }}</b></span>
-                    <span class="muted" :title="b.group.note">更新于 {{ fmt(b.group.updatedAt) }}</span>
-                  </template>
-                  <span v-else class="muted">未设置</span>
-                  <button class="btn sm admin-group-edit" @click="startGroupEdit(b)">✏️ {{ groupEditKey === b.key ? '收起' : '编辑' }}</button>
+                  <span class="admin-group-label">👥 教学群（{{ (b.groups || []).length }}）</span>
+                  <button class="btn sm admin-group-edit" @click="toggleGroupPanel(b.key)">{{ groupEditKey === b.key ? '✏️ 收起' : '➕ 管理群' }}</button>
                 </div>
+                <div v-for="g in b.groups || []" :key="g.id" class="share-app-row">
+                  <div class="share-app-main">
+                    <span>👥 {{ g.type || '—' }} · <b>{{ g.num || g.link || '—' }}</b></span>
+                    <span v-if="g.note" class="muted"> · {{ g.note }}</span>
+                  </div>
+                  <span style="display:flex;gap:6px;">
+                    <button class="btn sm" @click="startGroupEdit(b, g)">✏️ 编辑</button>
+                    <button class="btn sm danger-ghost" @click="removeGroup(b.key, g.id)">删除</button>
+                  </span>
+                </div>
+                <span v-if="!(b.groups || []).length" class="muted" style="font-size:12px;">未设置</span>
                 <div v-if="groupEditKey === b.key" class="admin-group-form">
+                  <div class="admin-group-title">{{ editingGid ? '✏️ 编辑群' : '➕ 添加一个群' }}</div>
                   <div class="row2">
                     <div class="field"><label>群类型</label>
                       <select v-model="gform.type">
@@ -338,8 +359,8 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
                   <div class="field"><label>加群 / 入口链接</label><input v-model="gform.link" type="url" placeholder="https://…（可留空）"></div>
                   <div class="field"><label>群备注</label><input v-model="gform.note" maxlength="200" placeholder="如：作业提交到群文件（可留空）"></div>
                   <div class="admin-group-ops">
-                    <button class="btn sm primary" @click="saveGroup(b.key)">💾 保存并同步</button>
-                    <button class="btn sm" @click="groupEditKey = null">取消</button>
+                    <button class="btn sm primary" @click="saveGroup(b.key)">{{ editingGid ? '💾 保存修改' : '➕ 添加' }}</button>
+                    <button class="btn sm" @click="groupEditKey = null">收起</button>
                   </div>
                 </div>
               </div>
