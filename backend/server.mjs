@@ -374,6 +374,23 @@ function rateLimited(key, max, windowMs) {
  *           pendingFiles: [{id,xh,name,size,submittedAt}] } }
  *   共享板由负责人编辑；普通成员可「投稿」作业/附件进入待审队列，负责人审核通过后上架同步。
  */
+/* ---------- SSE 实时广播（共享板变更即时推给在线客户端，前端收到后重拉 /sync） ----------
+ * 连接表 { res, xh }；同一 token 多标签页多连接属正常；班级规模无需限流。
+ * res/req 挂 error 监听：向已断连接写入会触发流错误，无人接住会让整个进程崩溃。 */
+const sseClients = new Set()
+function sseBroadcast() {
+  const frame = `event: sync\ndata: {"t": ${Date.now()}}\n\n`
+  for (const c of [...sseClients]) {
+    try { c.res.write(frame) } catch (e) { sseClients.delete(c) }
+  }
+}
+// 心跳 ≤25s：既保活也让代理不判定空闲断开；写失败即移除
+setInterval(() => {
+  for (const c of [...sseClients]) {
+    try { c.res.write(': ka\n\n') } catch (e) { sseClients.delete(c) }
+  }
+}, 25 * 1000).unref()
+
 const SHARES_FILE = path.join(DATA_DIR, 'shares.json')
 const shares = { applications: [], owners: {}, boards: {} }
 async function loadShares() {
@@ -397,12 +414,17 @@ async function loadShares() {
   }
 }
 async function saveShares() {
+  let persisted = false
   try {
     await writeJsonAtomic(SHARES_FILE, shares)
     await backupJson('shares', shares)
+    persisted = true
   } catch (e) {
     console.error('[save] shares.json 保存失败：', e.message)
   }
+  // 唯一广播点：所有共享板/投稿/负责人变更都经 saveShares 落盘；写盘失败不广播。
+  // 账号数据（/data、/data/ops）走 saveAccount，不经此处，不会误广播。
+  if (persisted && sseClients.size) sseBroadcast()
 }
 const boardOf = key => (shares.boards[key] = shares.boards[key] || { assignments: [], files: [], pendingAssignments: [], pendingFiles: [], group: null, pendingGroup: null })
 const keyHash = key => crypto.createHash('sha256').update('board:' + key).digest('hex').slice(0, 16)
@@ -587,6 +609,34 @@ http.createServer(async (req, res) => {
       await saveAccount(acc)
       console.log(`[auth] ${s.xh} ${hadPw ? '更新' : '设置'}了应用密码`)
       return json(res, 200, { ok: true })
+    }
+
+    /* 共享板变更实时流（SSE）。EventSource 无法带 Authorization 头，仅此端点接受 ?token=
+     * 校验等同 userAuth（admin 会话不需要此端点）；无效/过期 → 401 JSON。
+     * 注意：日志绝不打印完整 URL（含 token）。 */
+    if (p === '/events' && req.method === 'GET') {
+      const ts = sessions[url.searchParams.get('token') || '']
+      if (!ts || ts.admin || ts.expiresAt <= Date.now()) return json(res, 401, { error: '未登录或会话过期' })
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
+      })
+      const client = { res, xh: ts.xh }
+      sseClients.add(client)
+      // 断连清理（close）+ 流错误兜底（写已断连接会 async 抛错，无人接住进程会崩）
+      let gone = false
+      const cleanup = () => {
+        if (gone) return
+        gone = true
+        sseClients.delete(client)
+        console.log(`[sse] ${client.xh} 连接断开（当前 ${sseClients.size} 个）`)
+      }
+      req.on('close', cleanup)
+      req.on('error', cleanup)
+      res.on('error', cleanup)
+      console.log(`[sse] ${client.xh} 建立实时连接（当前 ${sseClients.size} 个）`)
+      return   // 保持连接，不 end；事件由 sseBroadcast/心跳写入
     }
 
     /* 管理员登录（账号密码，非 ehall） */
