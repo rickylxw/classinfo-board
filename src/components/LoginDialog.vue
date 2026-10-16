@@ -107,7 +107,7 @@ async function doLogin(raw = cookie.value, viaQuick = false) {
 }
 
 async function doPasswordLogin() {
-  if (!pwXh.value.trim() || !pwPass.value) { pwError.value = '请输入学号和密码'; return }
+  if (!pwXh.value.trim() || !pwPass.value) { pwError.value = '请输入一卡通号和密码'; return }
   pwLoading.value = true
   pwError.value = ''
   try {
@@ -129,7 +129,7 @@ async function doSetPw() {
   setpwError.value = ''
   try {
     await setPassword(setpw1.value)
-    toast('应用密码已设置，以后可用「学号 + 密码」直接登录')
+    toast('应用密码已设置，以后可用「一卡通号 + 密码」直接登录')
     emit('close')
   } catch (e) {
     setpwError.value = e.message
@@ -163,7 +163,7 @@ async function doAdminLogin() {
         <template v-if="setpwOpen">
           <h2>🔐 设置应用密码</h2>
           <p class="muted" style="margin:0 0 12px;font-size:12px;">
-            设置后，以后无论换设备还是 ehall 凭证过期，都能用「学号 + 密码」直接登录本应用，
+            设置后，以后无论换设备还是 ehall 凭证过期，都能用「一卡通号 + 密码」直接登录本应用，
             不用再去 ehall 复制 Cookie。密码只保存在服务器（scrypt 单向哈希，谁也看不到原文）。
           </p>
           <div class="field"><label>应用密码（至少 6 位）</label><input v-model="setpw1" type="password" autocomplete="new-password" placeholder="本应用的独立密码，可与学校密码不同"></div>
@@ -178,7 +178,7 @@ async function doAdminLogin() {
         <template v-else>
           <h2>登录（东南大学 ehall）</h2>
           <p class="muted" style="margin:0 0 12px;font-size:12px;">
-            用你的 ehall 登录 Cookie 验证身份，后端会向我的课表接口发请求验证，并以返回的学号作为账号。
+            用你的 ehall 登录 Cookie 验证身份，后端会向我的课表接口发请求验证，并以返回的一卡通号作为账号。
             Cookie 只保存在你本机，不会上传到任何第三方。
           </p>
 
@@ -196,7 +196,7 @@ async function doAdminLogin() {
           <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;">
             <div style="font-size:13px;font-weight:600;margin-bottom:8px;">🔑 应用密码登录 <span class="muted" style="font-weight:400;">（设置过一次，任何设备免 Cookie）</span></div>
             <div class="row2">
-              <div class="field"><label>学号</label><input v-model="pwXh" autocomplete="username" placeholder="你的学号"></div>
+              <div class="field"><label>一卡通号</label><input v-model="pwXh" autocomplete="username" placeholder="你的一卡通号"></div>
               <div class="field"><label>密码</label><input v-model="pwPass" type="password" autocomplete="current-password" placeholder="应用密码"></div>
             </div>
             <div v-if="pwError" class="tt-status error">{{ pwError }}</div>
