@@ -342,11 +342,12 @@ export async function submitGroupProposal(key, action, group, id) {
   await loadMySubmissions(key)
   toast(action === 'edit' ? '教学群修改申请已提交，等待审核' : '教学群添加申请已提交，等待审核')
 }
-export async function reviewBoardGroupEdit(key, approve) {
-  await api.reviewBoardGroup(key, approve)
+export async function reviewBoardGroupEdit(key, pid, approve) {
+  await api.reviewBoardGroup(key, pid, approve)
   await loadBoard(key)
   fetchSyncs()
-  toast(approve ? '已通过，共享教学群已更新并同步' : '已驳回该修改申请')
+  toast(approve ? '已通过，共享教学群已更新并同步' : '已驳回该申请')
+  loadMySubmissions(key)
 }
 
 /* ---------- 成员投稿（提交 DDL/作业与附件，负责人审核通过后上架同步） ---------- */
@@ -392,8 +393,8 @@ export async function publishExistingFile(key, f) {
 export async function loadMySubmissions(key) {
   try {
     const r = await api.fetchMySubmissions(key)
-    store.mySubs = { assignments: r.assignments || [], files: r.files || [], group: r.group || null }
-  } catch (e) { store.mySubs = { assignments: [], files: [], group: null } }
+    store.mySubs = { assignments: r.assignments || [], files: r.files || [], groups: r.groups || (r.group ? [r.group] : []) }
+  } catch (e) { store.mySubs = { assignments: [], files: [], groups: [] } }
 }
 export async function reviewBoardSubmission(key, type, id, approve, patch = {}) {
   const fn = type === 'file' ? api.reviewBoardFile : api.reviewBoardAssignment

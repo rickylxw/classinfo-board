@@ -87,9 +87,9 @@ async function removeGroup(key, id) {
   toast('已删除该共享教学群')
   load()
 }
-async function reviewGroup(key, approve) {
-  if (!approve && !confirm('驳回该教学群修改申请？')) return
-  await reviewBoardGroup(key, approve)
+async function reviewGroup(key, pid, approve) {
+  if (!approve && !confirm('驳回该教学群申请？')) return
+  await reviewBoardGroup(key, pid, approve)
   toast(approve ? '已通过并同步给全班' : '已驳回')
   load()
 }
@@ -215,9 +215,9 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
             <h3>📥 成员投稿审核 <span class="muted">（负责人未处理或未设负责人时在此审核）</span></h3>
           </div>
           <div v-if="submissions?.submissions.length" class="admin-sub-list">
-            <div v-for="s in submissions.submissions" :key="s.type + (s.id ?? s.submittedAt)">
+            <div v-for="s in submissions.submissions" :key="s.type + (s.pid ?? s.id ?? s.submittedAt)">
               <div class="admin-sub-meta">
-                {{ s.courseName }}{{ s.teacher ? '（' + s.teacher + '）' : '' }} · {{ s.type === 'file' ? '附件投稿' : s.type === 'group' ? '教学群修改' : '作业投稿' }} · {{ fmt(s.submittedAt) }} · 来自 {{ s.xhMasked }}
+                {{ s.courseName }}{{ s.teacher ? '（' + s.teacher + '）' : '' }} · {{ s.type === 'file' ? '附件投稿' : s.type === 'group' ? (s.action === 'edit' ? '教学群修改' : '教学群添加') : '作业投稿' }} · {{ fmt(s.submittedAt) }} · 来自 {{ s.xhMasked }}
               </div>
               <template v-if="s.type === 'group'">
                 <div class="group-grid admin-sub-group">
@@ -227,8 +227,8 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
                   <span class="gl">备注</span><span class="gv">{{ s.group.note || '—' }}</span>
                 </div>
                 <div class="admin-group-ops">
-                  <button class="btn sm primary" @click="reviewGroup(s.key, true)">✅ 通过并同步</button>
-                  <button class="btn sm danger-ghost" @click="reviewGroup(s.key, false)">❌ 驳回</button>
+                  <button class="btn sm primary" @click="reviewGroup(s.key, s.pid, true)">✅ 通过并同步</button>
+                  <button class="btn sm danger-ghost" @click="reviewGroup(s.key, s.pid, false)">❌ 驳回</button>
                 </div>
               </template>
               <BoardReviewRow
@@ -313,18 +313,18 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
                 <button class="btn sm danger-ghost" @click="delBoardItem(b.key, 'file', f.id, f.name)">删除</button>
               </div>
 
-              <!-- 待审教学群申请 -->
-              <div v-if="b.pendingGroup" class="admin-group-pending">
-                <div class="admin-group-title">⏳ 教学群{{ b.pendingGroup.action === 'edit' ? '修改' : '添加' }}申请（来自 {{ b.pendingGroup.xhMasked }}）</div>
+              <!-- 待审教学群申请（队列，逐条审核） -->
+              <div v-for="pg in b.pendingGroups || []" :key="pg.pid" class="admin-group-pending">
+                <div class="admin-group-title">⏳ 教学群{{ pg.action === 'edit' ? '修改' : '添加' }}申请（来自 {{ pg.xhMasked }}）</div>
                 <div class="group-grid">
-                  <span class="gl">类型</span><span class="gv"><b>{{ b.pendingGroup.group.type || '—' }}</b></span>
-                  <span class="gl">群号/群名</span><span class="gv"><b>{{ b.pendingGroup.group.num || '—' }}</b></span>
-                  <span class="gl">链接</span><span class="gv">{{ b.pendingGroup.group.link || '—' }}</span>
-                  <span class="gl">备注</span><span class="gv">{{ b.pendingGroup.group.note || '—' }}</span>
+                  <span class="gl">类型</span><span class="gv"><b>{{ pg.group.type || '—' }}</b></span>
+                  <span class="gl">群号/群名</span><span class="gv"><b>{{ pg.group.num || '—' }}</b></span>
+                  <span class="gl">链接</span><span class="gv">{{ pg.group.link || '—' }}</span>
+                  <span class="gl">备注</span><span class="gv">{{ pg.group.note || '—' }}</span>
                 </div>
                 <div class="admin-group-ops">
-                  <button class="btn sm primary" @click="reviewGroup(b.key, true)">✅ 通过并同步</button>
-                  <button class="btn sm danger-ghost" @click="reviewGroup(b.key, false)">❌ 驳回</button>
+                  <button class="btn sm primary" @click="reviewGroup(b.key, pg.pid, true)">✅ 通过并同步</button>
+                  <button class="btn sm danger-ghost" @click="reviewGroup(b.key, pg.pid, false)">❌ 驳回</button>
                 </div>
               </div>
 

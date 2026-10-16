@@ -412,7 +412,7 @@ async function loadShares() {
     shares.owners = data.owners && typeof data.owners === 'object' ? data.owners : {}
     shares.boards = data.boards && typeof data.boards === 'object' ? data.boards : {}
   }
-  // 教学群多群模型迁移：旧的单个 group（若有内容）并入 groups 首位；旧待审申请按「修改」处理
+  // 教学群多群模型迁移：旧的单个 group（若有内容）并入 groups 首位；旧单条待审申请迁入队列
   for (const b of Object.values(shares.boards)) {
     if (!Array.isArray(b.groups)) {
       b.groups = groupHasContent(b.group)
@@ -420,7 +420,19 @@ async function loadShares() {
         : []
     }
     b.group = null
-    if (b.pendingGroup && !b.pendingGroup.action) b.pendingGroup.action = 'edit'
+    if (!Array.isArray(b.pendingGroups)) {
+      b.pendingGroups = b.pendingGroup
+        ? [{
+            pid: crypto.randomBytes(8).toString('hex'),
+            action: b.pendingGroup.action || 'edit',
+            gid: b.pendingGroup.id,
+            group: sanitizeGroup(b.pendingGroup.group),
+            xh: b.pendingGroup.xh,
+            submittedAt: b.pendingGroup.submittedAt || Date.now()
+          }]
+        : []
+    }
+    b.pendingGroup = null
   }
 }
 async function saveShares() {
@@ -436,7 +448,7 @@ async function saveShares() {
   // 账号数据（/data、/data/ops）走 saveAccount，不经此处，不会误广播。
   if (persisted && sseClients.size) sseBroadcast()
 }
-const boardOf = key => (shares.boards[key] = shares.boards[key] || { assignments: [], files: [], pendingAssignments: [], pendingFiles: [], groups: [], group: null, pendingGroup: null })
+const boardOf = key => (shares.boards[key] = shares.boards[key] || { assignments: [], files: [], pendingAssignments: [], pendingFiles: [], groups: [], pendingGroups: [], group: null, pendingGroup: null })
 /* 教学群多群模型：boards[key].groups = [{id,type,num,link,note,updatedAt}...]，一门课可挂多个群 */
 const sanitizeGroup = g => ({
   type: String(g?.type || '').slice(0, 20),
@@ -760,8 +772,9 @@ http.createServer(async (req, res) => {
             files: (b.files || []).map(f => ({ id: f.id, name: f.name, size: f.size })),
             groups: (b.groups || []).map(g => ({ type: g.type, num: g.num, note: g.note })),
             group: b.group || null,
-            pendingGroup: b.pendingGroup ? { action: b.pendingGroup.action || 'edit', id: b.pendingGroup.id, group: b.pendingGroup.group, xhMasked: maskXh(b.pendingGroup.xh), submittedAt: b.pendingGroup.submittedAt } : null,
-            pending: (b.pendingAssignments?.length || 0) + (b.pendingFiles?.length || 0) + (b.pendingGroup ? 1 : 0)
+            pendingGroups: (b.pendingGroups || []).map(pg => ({ pid: pg.pid, action: pg.action, gid: pg.gid, group: pg.group, xhMasked: maskXh(pg.xh), submittedAt: pg.submittedAt })),
+            pendingGroup: (b.pendingGroups || [])[0] ? { action: b.pendingGroups[0].action, group: b.pendingGroups[0].group, xhMasked: maskXh(b.pendingGroups[0].xh), submittedAt: b.pendingGroups[0].submittedAt } : null,
+            pending: (b.pendingAssignments?.length || 0) + (b.pendingFiles?.length || 0) + (b.pendingGroups?.length || 0)
           })
         }
         return json(res, 200, { boards })
@@ -776,9 +789,8 @@ http.createServer(async (req, res) => {
           for (const f of board.pendingFiles || []) {
             subs.push({ type: 'file', key, courseName: key.split('|')[0], teacher: key.split('|')[1] || '', ...f, xhMasked: maskXh(f.xh) })
           }
-          if (board.pendingGroup) {
-            const pg = board.pendingGroup
-            subs.push({ type: 'group', key, courseName: key.split('|')[0], teacher: key.split('|')[1] || '', group: pg.group, xh: pg.xh, xhMasked: maskXh(pg.xh), submittedAt: pg.submittedAt })
+          for (const pg of board.pendingGroups || []) {
+            subs.push({ type: 'group', pid: pg.pid, key, courseName: key.split('|')[0], teacher: key.split('|')[1] || '', action: pg.action, group: pg.group, xh: pg.xh, xhMasked: maskXh(pg.xh), submittedAt: pg.submittedAt })
           }
         }
         subs.sort((a, b) => a.submittedAt - b.submittedAt)
@@ -1053,7 +1065,8 @@ http.createServer(async (req, res) => {
       return json(res, 200, {
         assignments: (board?.pendingAssignments || []).filter(a => a.xh === s.xh),
         files: (board?.pendingFiles || []).filter(f => f.xh === s.xh),
-        group: (board?.pendingGroup && board.pendingGroup.xh === s.xh) ? board.pendingGroup : null
+        groups: (board?.pendingGroups || []).filter(pg => pg.xh === s.xh),
+        group: (board?.pendingGroups || []).find(pg => pg.xh === s.xh) || null
       })
     }
 
@@ -1135,18 +1148,28 @@ http.createServer(async (req, res) => {
       if (action === 'edit' && !(board.groups || []).some(x => x.id === body.id)) {
         return json(res, 404, { error: '要修改的教学群不存在（可能刚被删除），请刷新后重试' })
       }
-      boardOf(key).pendingGroup = {
+      board.pendingGroups = board.pendingGroups || []
+      if (board.pendingGroups.length >= 50) return json(res, 400, { error: '待审申请过多，请等负责人处理后再提交' })
+      // 防重复：同一人已有一条同动作、同目标/同内容的申请在队列里时拒绝重复提交
+      const dup = board.pendingGroups.some(pg =>
+        pg.xh === s.xh && pg.action === action &&
+        (action === 'edit' ? pg.gid === body.id : (pg.group.num === g.num && pg.group.link === g.link && pg.group.note === g.note)))
+      if (dup) return json(res, 400, { error: '你已有一条相同的申请在待审中，请等审核结果' })
+      const proposal = {
+        pid: crypto.randomBytes(8).toString('hex'),
         action,
-        ...(action === 'edit' ? { id: body.id } : {}),
+        ...(action === 'edit' ? { gid: body.id } : {}),
         group: g,
         xh: s.xh,
         submittedAt: Date.now()
       }
+      board.pendingGroups.push(proposal)
       saveShares()
-      console.log(`[board] ${s.xh} 提交教学群${action === 'edit' ? '修改' : '添加'}申请 ${key}`)
-      return json(res, 200, { ok: true })
+      console.log(`[board] ${s.xh} 提交教学群${action === 'edit' ? '修改' : '添加'}申请 ${key}（待审 ${board.pendingGroups.length} 条）`)
+      return json(res, 200, { ok: true, pid: proposal.pid })
     }
-    /* 负责人或管理员审核教学群申请：通过 = 按动作入列/更新 */
+    /* 负责人或管理员审核教学群申请（按 pid 逐条；不传 pid 兼容旧前端=审最早一条）：
+     * 通过 = add 入列新群 / edit 更新目标群；edit 目标已被删除按「已失效」处理不报错 */
     if (p === '/board/group/review' && req.method === 'POST') {
       const as = auth(req)
       if (!as) return json(res, 401, { error: '未登录或会话过期' })
@@ -1154,16 +1177,22 @@ http.createServer(async (req, res) => {
       const key = norm(body.key)
       if (!as.admin && !isOwner(as.xh, key)) return json(res, 403, { error: '仅课程负责人或管理员可审核' })
       const board = boardOf(key)
-      if (!board.pendingGroup) return json(res, 404, { error: '没有待审的修改申请' })
-      const pg = board.pendingGroup
-      board.pendingGroup = null
+      board.pendingGroups = board.pendingGroups || []
+      const pg = body.pid
+        ? board.pendingGroups.find(x => x.pid === body.pid)
+        : board.pendingGroups[0]
+      if (!pg) return json(res, 404, { error: '申请不存在或已处理' })
+      board.pendingGroups = board.pendingGroups.filter(x => x.pid !== pg.pid)
       let published = false
+      let stale = false
       if (body.approve) {
-        if (pg.action === 'edit' && pg.id) {
-          const entry = (board.groups || []).find(x => x.id === pg.id)
+        if (pg.action === 'edit' && pg.gid) {
+          const entry = (board.groups || []).find(x => x.id === pg.gid)
           if (entry) {
             Object.assign(entry, pg.group, { updatedAt: Date.now() })
             published = true
+          } else {
+            stale = true   // 目标群已被删除，申请自动作废
           }
         } else {
           board.groups = [...(board.groups || []), { id: crypto.randomBytes(8).toString('hex'), ...pg.group, updatedAt: Date.now() }]
@@ -1171,8 +1200,8 @@ http.createServer(async (req, res) => {
         }
       }
       saveShares()
-      console.log(`[board] ${as.admin ? '管理员' : '负责人'}${body.approve ? '通过' : '驳回'}教学群申请 ${key}`)
-      return json(res, 200, { ok: true, published })
+      console.log(`[board] ${as.admin ? '管理员' : '负责人'}${body.approve ? '通过' : '驳回'}教学群申请 ${key}${stale ? '（目标群已删除，申请作废）' : ''}`)
+      return json(res, 200, { ok: true, published, stale })
     }
 
     /* 以下均需登录，且全部按会话所属账号隔离 */

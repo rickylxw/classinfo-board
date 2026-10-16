@@ -32,7 +32,7 @@ const courseKey = computed(() => courseKeyOf(props.course))
 async function loadShareInfo() {
   shareInfo.value = { status: 'none', isOwner: false, hasOwner: false }
   store.board = {}
-  store.mySubs = { assignments: [], files: [], group: null }
+  store.mySubs = { assignments: [], files: [], groups: [] }
   if (!session.xh || session.isAdmin || !props.course.name) return
   shareInfo.value = await fetchShareStatus(props.course.name, props.course.teacher)
   if (shareInfo.value.isOwner) loadBoard(courseKey.value)
@@ -197,8 +197,8 @@ async function submitGroupEdit() {
   await submitGroupProposal(courseKey.value, gsubAction.value, { ...gsub }, gsubId.value)
   gsubOpen.value = false
 }
-async function reviewGroupEdit(approve) {
-  await reviewBoardGroupEdit(courseKey.value, approve)
+async function reviewGroupEdit(pid, approve) {
+  await reviewBoardGroupEdit(courseKey.value, pid, approve)
 }
 function fileSub(f) {
   if (f.kind === 'link') {
@@ -407,17 +407,19 @@ function fileSub(f) {
 
           <!-- 共享教学群（可挂多个） -->
           <template v-if="boardTab === 'group'">
-            <template v-if="board?.pendingGroup">
-              <div style="font-size:13px;font-weight:600;color:#a16207;">⏳ 教学群{{ board.pendingGroup.action === 'edit' ? '修改' : '添加' }}申请（来自 {{ maskXh(board.pendingGroup.xh) }}）</div>
-              <div class="group-grid" style="margin:6px 0 8px;">
-                <span class="gl">类型</span><span class="gv"><b>{{ board.pendingGroup.group.type || '—' }}</b></span>
-                <span class="gl">群号/群名</span><span class="gv"><b>{{ board.pendingGroup.group.num || '—' }}</b></span>
-                <span class="gl">链接</span><span class="gv">{{ board.pendingGroup.group.link || '—' }}</span>
-                <span class="gl">备注</span><span class="gv">{{ board.pendingGroup.group.note || '—' }}</span>
-              </div>
-              <div style="display:flex;gap:6px;margin-bottom:14px;">
-                <button class="btn sm primary" @click="reviewGroupEdit(true)">✅ 通过并同步</button>
-                <button class="btn sm danger-ghost" @click="reviewGroupEdit(false)">❌ 驳回</button>
+            <template v-if="(board?.pendingGroups || []).length">
+              <div v-for="pg in board.pendingGroups" :key="pg.pid" style="margin-bottom:12px;">
+                <div style="font-size:13px;font-weight:600;color:#a16207;">⏳ 教学群{{ pg.action === 'edit' ? '修改' : '添加' }}申请（来自 {{ maskXh(pg.xh) }}）</div>
+                <div class="group-grid" style="margin:6px 0 8px;">
+                  <span class="gl">类型</span><span class="gv"><b>{{ pg.group.type || '—' }}</b></span>
+                  <span class="gl">群号/群名</span><span class="gv"><b>{{ pg.group.num || '—' }}</b></span>
+                  <span class="gl">链接</span><span class="gv">{{ pg.group.link || '—' }}</span>
+                  <span class="gl">备注</span><span class="gv">{{ pg.group.note || '—' }}</span>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <button class="btn sm primary" @click="reviewGroupEdit(pg.pid, true)">✅ 通过并同步</button>
+                  <button class="btn sm danger-ghost" @click="reviewGroupEdit(pg.pid, false)">❌ 驳回</button>
+                </div>
               </div>
             </template>
             <div style="font-size:13px;font-weight:600;margin-bottom:6px;">共享教学群（可挂多个） <span class="muted">（改动立即同步给全班）</span></div>
@@ -550,14 +552,17 @@ function fileSub(f) {
               <button class="btn sm" @click="gsubOpen = false">收起</button>
             </div>
           </div>
-          <div v-if="store.mySubs.group" class="file-item" style="margin-top:8px;">
-            <span class="ficon">📢</span>
-            <div class="f-main">
-              <div class="f-name">{{ store.mySubs.group.action === 'edit' ? '教学群信息修改' : '教学群添加' }}</div>
-              <div class="f-sub">{{ store.mySubs.group.group.num || store.mySubs.group.group.link || store.mySubs.group.group.note || '（空）' }}</div>
+          <template v-if="(store.mySubs.groups || []).length">
+            <div style="margin-top:8px;font-size:12px;font-weight:600;color:#a16207;">⏳ 我的待审申请（{{ store.mySubs.groups.length }}）</div>
+            <div v-for="pg in store.mySubs.groups" :key="pg.pid" class="file-item">
+              <span class="ficon">📢</span>
+              <div class="f-main">
+                <div class="f-name">教学群{{ pg.action === 'edit' ? '修改' : '添加' }}申请</div>
+                <div class="f-sub">{{ pg.group.num || pg.group.link || pg.group.note || '（空）' }}</div>
+              </div>
+              <span class="badge b-week">待审核</span>
             </div>
-            <span class="badge b-week">待审核</span>
-          </div>
+          </template>
         </section>
 
         <!-- 文件 -->

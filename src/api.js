@@ -70,7 +70,7 @@ export const boardUpdateGroup = (key, id, group) => req('/board/group/update', {
 export const boardRemoveGroup = (key, id) => req('/board/group/delete', { method: 'POST', body: { key, id } })
 export const submitBoardGroup = (key, action, group, id) =>
   req('/board/group/submit', { method: 'POST', body: { key, action, group, ...(action === 'edit' ? { id } : {}) } })
-export const reviewBoardGroup = (key, approve) => req('/board/group/review', { method: 'POST', body: { key, approve } })
+export const reviewBoardGroup = (key, pid, approve) => req('/board/group/review', { method: 'POST', body: { key, pid, approve } })
 /* 成员投稿（待负责人审核） */
 export const submitBoardAssignment = (key, data) => req('/board/assignment/submit', { method: 'POST', body: { key, ...data } })
 export const submitBoardFile = (key, name, blob) =>
