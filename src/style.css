@@ -445,9 +445,12 @@ button.stat { color: var(--text); }
 .admin-sub-list { display: flex; flex-direction: column; gap: 12px; }
 .admin-sub-meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .admin-sub-group { font-size: 13px; padding: 6px 8px; background: var(--bg-soft); border-radius: 8px; }
-.admin-group { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 8px; }
-.admin-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
-.admin-group-label { font-weight: 600; }
+.admin-group-card {
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; background: var(--card);
+}
+.admin-group-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.admin-group-detail { font-size: 13px; margin-top: 8px; }
 .admin-group-edit { margin-left: auto; }
 .admin-group-form { margin-top: 8px; }
 .admin-group-ops { display: flex; gap: 6px; margin-top: 8px; }
