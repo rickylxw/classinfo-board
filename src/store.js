@@ -20,7 +20,7 @@ export const store = reactive({
   synced: {},       // courseKey -> { ref, from, assignments, files }（负责人维护的共享板，自动同步给同课同学）
   syncStatus: {},   // syncedAssignmentId -> 'done' | 'pending'（个人完成状态，不参与共享）
   board: {},        // courseKey -> 共享板原文（负责人管理视图用，不持久化）
-  mySubs: { assignments: [], files: [], group: null },   // 我投稿到当前共享板的待审条目
+  mySubs: { assignments: [], files: [], groups: [] },   // 我投稿到当前共享板的待审条目（群申请为队列）
   sidebarOpen: false,   // 移动端抽屉
   view: { type: 'overview', id: null, q: '' }   // 当前视图 + 搜索词
 })
