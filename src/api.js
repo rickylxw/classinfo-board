@@ -74,6 +74,13 @@ export const submitBoardFile = (key, name, blob) =>
 export const reviewBoardAssignment = (key, id, approve, patch = {}) => req('/board/assignment/review', { method: 'POST', body: { key, id, approve, ...patch } })
 export const reviewBoardFile = (key, id, approve) => req('/board/file/review', { method: 'POST', body: { key, id, approve } })
 export const fetchMySubmissions = key => req('/board/submissions?key=' + encodeURIComponent(key))
+/* 实时同步流（SSE）：后端 /api/events 广播共享板变更。EventSource 无法带
+   Authorization 头，约定用 ?token= 传会话（仅此端点接受 query token） */
+export function openSyncStream(onSync, token) {
+  const es = new EventSource('/api/events?token=' + encodeURIComponent(token))
+  es.addEventListener('sync', onSync)
+  return es
+}
 export async function fetchBoardFileBlob(key, id) {
   const res = await fetch('/api/board/file/download?key=' + encodeURIComponent(key) + '&id=' + encodeURIComponent(id), {
     headers: session.token ? { Authorization: 'Bearer ' + session.token } : {}

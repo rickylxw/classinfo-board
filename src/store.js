@@ -196,6 +196,44 @@ export async function fetchSyncs() {
   } catch (e) { /* 静默，下次再拉 */ }
 }
 
+/* 实时同步流（SSE）：后端在共享板变更时广播 sync 事件，收到即拉 /sync。
+   无后端/旧后端时优雅降级：连续失败自动掐断，等切回页面或重新登录再试 */
+let syncStream = null
+let streamFails = 0
+let syncPullTimer = null
+function queueSyncPull() {
+  // 广播可能连发（审核通过批量上架等），1s 合并成一次拉取
+  if (syncPullTimer) return
+  syncPullTimer = setTimeout(() => { syncPullTimer = null; fetchSyncs() }, 1000)
+}
+function startSyncStream() {
+  if (syncStream || !session.token || session.isAdmin) return
+  try {
+    syncStream = api.openSyncStream(queueSyncPull, session.token)
+    syncStream.onopen = () => { streamFails = 0 }
+    syncStream.onerror = () => {
+      streamFails++
+      // 404/响应非事件流时浏览器直接放弃（readyState=CLOSED）→ 立即收尸；
+      // 网络级失败浏览器会自带重连，连续 5 次仍没成功才掐断，避免后端长时间不在时狂试
+      if (syncStream && (syncStream.readyState === EventSource.CLOSED || streamFails >= 5)) {
+        syncStream.close(); syncStream = null
+      }
+    }
+  } catch (e) { /* 忽略 */ }
+}
+function stopSyncStream() {
+  if (syncStream) { syncStream.close(); syncStream = null }
+  streamFails = 0
+  if (syncPullTimer) { clearTimeout(syncPullTimer); syncPullTimer = null }
+}
+// 切回页面立即对齐一次（顺带重启被退避掐断的流）
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && session.token && !session.isAdmin) {
+    startSyncStream()
+    fetchSyncs()
+  }
+})
+
 export function toggleSynced(id) {
   if (!requireLogin('修改完成状态')) return
   if (store.syncStatus[id] === 'archived') return   // 已归档的先恢复再操作
@@ -381,6 +419,7 @@ export async function initSession() {
       session.xh = me.xh
       await reconcileWithCloud()
       fetchSyncs()
+      startSyncStream()
       // 学期起点漫游：本地没设而云端有时自动带上
       try {
         const { semStart } = await api.getCloudSemStart()
@@ -400,6 +439,8 @@ export async function initSession() {
 export async function handleLogin(token, xh) {
   api.setToken(token, xh)
   await reconcileWithCloud()
+  fetchSyncs()
+  startSyncStream()
 }
 
 export function handleAdminLogin(token) {
@@ -409,6 +450,7 @@ export function handleAdminLogin(token) {
   }
   api.setToken(token, 'admin')
   session.isAdmin = true
+  stopSyncStream()
 }
 
 /* 退出登录：清空本机全部用户数据（云端保留，重新登录取回） */
@@ -432,6 +474,7 @@ export async function doLogout() {
   if (!confirm('退出登录？\n本机数据将被清空（云端保留），重新登录后自动恢复。')) return false
   await api.logout()
   api.setToken('')
+  stopSyncStream()
   if (session.isAdmin) {
     // 管理员退出：若有备份的用户会话则直接恢复（不算真正登出）
     const backup = localStorage.getItem('classinfo-user-backup')
@@ -442,6 +485,7 @@ export async function doLogout() {
         api.setToken(token, xh)
         await reconcileWithCloud()
         fetchSyncs()
+        startSyncStream()
         toast(`管理员已退出，已恢复用户登录：${xh}`)
         return true
       } catch (e) {
