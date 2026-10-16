@@ -13,13 +13,14 @@ const loading = ref(false)
 const remembered = ref('')
 const extractNote = ref('')
 
-/* 兼容三种粘贴：整段 cURL 命令（右键 Copy as cURL）、带 cookie: 头名的行、纯 Cookie 值 */
+/* 兼容多种粘贴：cURL 命令（bash 与 Windows cmd 两种格式）、带 cookie: 头名的行、纯 Cookie 值。
+   cmd 格式会把引号/感叹号等转义成 ^" ^!，且新版把 Cookie 放在 -b 参数而非 -H "cookie:" 头 */
 function extractCookie(raw) {
   let v = String(raw).trim()
   if (!v) return { value: '', fromCurl: false }
+  if (/\^["!]/.test(v)) v = v.replace(/\^(["!&()<>|])/g, '$1')
   const m = v.match(/-H\s*['"]\s*cookie\s*:\s*([^'"]+?)\s*['"]/i)
-    || v.match(/--cookie\s*=?\s*['"]([^'"]+)['"]/i)
-    || v.match(/-b\s*['"]([^'"]+)['"]/i)
+    || v.match(/(?:\s--cookie|\s-b)\s*=?\s*['"]([^'"]+)['"]/i)
   if (m) return { value: m[1].trim(), fromCurl: true }
   v = v.replace(/^cookie\s*:\s*/i, '')
   return { value: v.trim(), fromCurl: false }
@@ -39,13 +40,19 @@ function onPaste(e) {
   }
 }
 
+/* ehall 会话字段：实测验证不依赖 MOD_AUTH_CAS，GS_SESSIONID/JSESSIONID 等门户会话即可 */
+const EHALL_KEYS = ['MOD_AUTH_CAS', 'GS_SESSIONID', 'JSESSIONID', '_WEU', 'route']
 const cookieHint = computed(() => {
   const v = cookie.value.trim()
   if (!v) return null
-  if (!v.includes('MOD_AUTH_CAS')) {
-    return { type: 'error', text: '未检测到 MOD_AUTH_CAS（HttpOnly 凭证）——请确认是从 ehall 请求的 Request Headers 复制的 cookie 行，或右键请求 Copy as cURL 整段粘贴' }
+  if (/^curl(\.exe)?\s/i.test(v) || /\s--data-raw\s/.test(v) || /\s-[Hb]\s\^?['"]/.test(v)) {
+    return { type: 'curl', text: '检测到 cURL 命令，点「登录验证」即可，Cookie 会自动提取' }
   }
-  return { type: 'ok', text: '✓ 已检测到 MOD_AUTH_CAS，可以进行登录验证' }
+  const hit = EHALL_KEYS.find(k => v.includes(k + '='))
+  if (!hit) {
+    return { type: 'error', text: '没识别出 ehall 会话字段（GS_SESSIONID / JSESSIONID 等）——请确认复制的是 ehall 请求的 cookie 行，或右键请求 Copy as cURL 整段粘贴' }
+  }
+  return { type: 'ok', text: `✓ 已识别出会话字段 ${hit}，可以进行登录验证` }
 })
 
 // 应用密码登录
@@ -71,8 +78,9 @@ onMounted(() => {
 })
 
 async function doLogin(raw = cookie.value, viaQuick = false) {
-  const value = extractCookie(raw).value
+  const { value, fromCurl } = extractCookie(raw)
   if (!value) { error.value = '请先粘贴 Cookie'; return }
+  if (fromCurl) toast('已从 cURL 命令自动提取 Cookie')
   loading.value = true
   error.value = ''
   try {
@@ -222,7 +230,7 @@ async function doAdminLogin() {
             <textarea
               v-model="cookie" rows="4"
               @paste="onPaste" @input="extractNote = ''"
-              placeholder="粘贴整段 Cookie（MOD_AUTH_CAS=…），或右键请求 Copy as cURL 后整段粘贴也行"></textarea>
+              placeholder="粘贴整段 Cookie（GS_SESSIONID=…; JSESSIONID=…），或右键请求 Copy as cURL 后整段粘贴也行"></textarea>
             <div v-if="extractNote" class="tt-status" style="margin:4px 0 0;">{{ extractNote }}</div>
             <div v-else-if="cookieHint" class="tt-status" :class="{ error: cookieHint.type === 'error' }" style="margin:4px 0 0;">{{ cookieHint.text }}</div>
           </div>

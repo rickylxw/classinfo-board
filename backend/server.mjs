@@ -511,7 +511,7 @@ http.createServer(async (req, res) => {
       if (rateLimited('login:' + clientIp(req), 10, 10 * 60 * 1000)) return json(res, 429, { error: '登录尝试过于频繁，请 10 分钟后再试' })
       const body = await readJson(req, 65536)
       const cookie = String(body.cookie || '').trim()
-      if (!cookie || !cookie.includes('=')) return json(res, 400, { error: '请粘贴 ehall 的 Cookie（形如 MOD_AUTH_CAS=…）' })
+      if (!cookie || !cookie.includes('=')) return json(res, 400, { error: '请粘贴 ehall 的 Cookie（在 ehall 请求的 Request Headers 里整行复制）' })
       // 无效/过期 Cookie 是预期错误，返回 401 和友好提示，不进全局 500
       let info
       try {
