@@ -89,7 +89,7 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
         <button class="btn sm danger-ghost" @click="remove(g)">删除</button>
       </span>
     </div>
-    <div v-if="!groups().length" class="muted admin-board-empty">未设置——添加后立即同步给全班同学</div>
+    <div v-if="!groups().length" class="muted admin-board-empty">{{ board.exists === false ? '课程尚无共享板动态——添加教学群后自动建板并对全班生效' : '未设置——添加后立即同步给全班同学' }}</div>
 
     <div v-for="pg in board.pendingGroups || []" :key="pg.pid" class="admin-group-pending">
       <div class="admin-group-title">⏳ 教学群{{ pg.action === 'edit' ? '修改' : '添加' }}申请（来自 {{ pg.xhMasked }}）</div>
