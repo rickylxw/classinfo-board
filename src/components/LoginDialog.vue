@@ -14,14 +14,17 @@ const remembered = ref('')
 const extractNote = ref('')
 
 /* 兼容多种粘贴：cURL 命令（bash 与 Windows cmd 两种格式）、带 cookie: 头名的行、纯 Cookie 值。
-   cmd 格式会把引号/感叹号等转义成 ^" ^!，且新版把 Cookie 放在 -b 参数而非 -H "cookie:" 头 */
+   cmd 格式转义成 ^" ^! 且 Cookie 放 -b 参数；bash 格式是 -b $'…'（ANSI-C 引用）且把 ! 转义成 \u0021 */
 function extractCookie(raw) {
   let v = String(raw).trim()
   if (!v) return { value: '', fromCurl: false }
   if (/\^["!]/.test(v)) v = v.replace(/\^(["!&()<>|])/g, '$1')
   const m = v.match(/-H\s*['"]\s*cookie\s*:\s*([^'"]+?)\s*['"]/i)
-    || v.match(/(?:\s--cookie|\s-b)\s*=?\s*['"]([^'"]+)['"]/i)
-  if (m) return { value: m[1].trim(), fromCurl: true }
+    || v.match(/(?:\s--cookie|\s-b)\s*=?\s*\$?['"]([^'"]+)['"]/i)
+  if (m) {
+    // 还原 $'…' 里的 \uXXXX 转义（如 ! → \u0021）
+    return { value: m[1].replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).trim(), fromCurl: true }
+  }
   v = v.replace(/^cookie\s*:\s*/i, '')
   return { value: v.trim(), fromCurl: false }
 }
