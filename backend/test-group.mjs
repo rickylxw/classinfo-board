@@ -131,3 +131,39 @@ await withTestServer({
     }
   }
 })
+
+/* /admin/boards 全课程覆盖：无人互动的课程可见（exists=false）→ 管理员预挂群 →
+ * 惰性建板 → 同课成员 /sync 收到；纯枚举课程不被落盘建板 */
+await withTestServer({
+  S: { xh: 'freshS0001', data: { courses: [{ id: 'cS1', name: '毛概', teacher: '陈老师', semester: '2026-2027-1' }, { id: 'cS2', name: '全新课程', teacher: '新老师', semester: '2026-2027-1' }], assignments: [], files: [] } }
+}, async ({ base, adminPass, token }) => {
+  const out3 = []
+  const ck = (n, c, d = '') => out3.push((c ? '✅' : '❌') + ' ' + n + (d ? ' — ' + d : ''))
+  const post = (p, body, tk) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk }, body: JSON.stringify(body) }).then(r => r.json())
+  const adminAuth = { Authorization: 'Bearer ' + (await post('/auth/admin-login', { username: 'admin', password: adminPass }, '')).token }
+  const adminBoards = () => fetch(base + '/admin/boards', { headers: adminAuth }).then(r => r.json())
+  const KEY2 = '全新课程|新老师'
+
+  const boards0 = await adminBoards()
+  const fresh = boards0.boards.find(x => x.key === KEY2)
+  ck('无板课程出现在 /admin/boards', !!fresh)
+  ck('exists=false 且 groups 为空数组', fresh?.exists === false && Array.isArray(fresh.groups) && fresh.groups.length === 0, JSON.stringify(fresh))
+  ck('课程名/教师用账号里的原文（非 key 切分）', fresh?.courseName === '全新课程' && fresh?.teacher === '新老师')
+  ck('同账号的未互动课程也全部可见', boards0.boards.some(x => x.key === '毛概|陈老师'))
+
+  const add = await post('/board/group/add', { key: KEY2, group: { type: 'QQ群', num: '246 810' } }, adminAuth.Authorization.split(' ')[1])
+  ck('管理员对无板课程直接添加教学群（惰性建板）', add.ok && !!add.group?.id, JSON.stringify(add))
+
+  const boards1 = await adminBoards()
+  const now = boards1.boards.find(x => x.key === KEY2)
+  ck('挂群后 exists=true 且 groups 入列', now?.exists === true && now?.groups?.length === 1)
+  const maogai = boards1.boards.find(x => x.key === '毛概|陈老师')
+  ck('纯枚举课程未被落盘建板（exists 仍为 false）', maogai?.exists === false)
+
+  const sync = await fetch(base + '/sync', { headers: { Authorization: 'Bearer ' + token('S') } }).then(r => r.json())
+  ck('同课成员 /sync 收到预挂的教学群', sync[0]?.key === KEY2 && sync[0]?.groups?.length === 1 && sync[0]?.groups[0].num === '246 810', JSON.stringify(sync[0]))
+
+  console.log(out3.join('\n'))
+  console.log(out3.every(r => r.startsWith('✅')) ? '=== 全课程覆盖验证全部通过 ===' : '=== 全课程覆盖验证存在失败 ===')
+  if (!out3.every(r => r.startsWith('✅'))) process.exitCode = 1
+})

@@ -759,24 +759,39 @@ http.createServer(async (req, res) => {
         return json(res, 200, { ok: true })
       }
       if (p === '/admin/boards' && req.method === 'GET') {
-        // 所有课程的共享板内容（管理员的删除入口）
-        const boards = []
-        for (const [key, b] of Object.entries(shares.boards)) {
-          const ownerXh = shares.owners[key]
-          boards.push({
-            key,
-            courseName: key.split('|')[0],
-            teacher: key.split('|')[1] || '',
-            owner: ownerXh ? maskXh(ownerXh) : null,
-            assignments: (b.assignments || []).map(a => ({ id: a.id, title: a.title, deadline: a.deadline || '' })),
-            files: (b.files || []).map(f => ({ id: f.id, name: f.name, size: f.size })),
-            groups: (b.groups || []).map(g => ({ type: g.type, num: g.num, note: g.note })),
-            group: b.group || null,
-            pendingGroups: (b.pendingGroups || []).map(pg => ({ pid: pg.pid, action: pg.action, gid: pg.gid, group: pg.group, xhMasked: maskXh(pg.xh), submittedAt: pg.submittedAt })),
-            pendingGroup: (b.pendingGroups || [])[0] ? { action: b.pendingGroups[0].action, group: b.pendingGroups[0].group, xhMasked: maskXh(b.pendingGroups[0].xh), submittedAt: b.pendingGroups[0].submittedAt } : null,
-            pending: (b.pendingAssignments?.length || 0) + (b.pendingFiles?.length || 0) + (b.pendingGroups?.length || 0)
-          })
+        // 所有课程的共享板内容（管理员的删除/预挂教学群入口）。
+        // 左连接：全部账号的课程 ∪ shares.boards——没人互动过的课程也可见（exists=false）。
+        // 仅为展示而枚举，不调用 boardOf 落盘（否则会给每门课都创建空板文件）；
+        // 管理员无用户账号课程、示例数据永不上云，天然不会混入。
+        const known = new Map()   // courseKey -> 展示用原文 { name, teacher }（首个出现的账号为准）
+        for (const f of await readdir(ACCOUNTS_DIR).catch(() => [])) {
+          if (!f.endsWith('.json')) continue
+          const acc = await loadAccount(f.slice(0, -5))
+          for (const c of acc?.data?.courses || []) {
+            if (!norm(c.name)) continue   // 无名课程不成键
+            const k = courseKey(c)
+            if (!known.has(k)) known.set(k, { name: c.name, teacher: c.teacher || '' })
+          }
         }
+        const keys = [...new Set([...known.keys(), ...Object.keys(shares.boards)])].sort()
+        const boards = keys.map(key => {
+          const b = shares.boards[key]
+          const src = known.get(key) || { name: key.split('|')[0], teacher: key.split('|')[1] || '' }
+          return {
+            key,
+            exists: !!b,
+            courseName: src.name,
+            teacher: src.teacher,
+            owner: (b && shares.owners[key]) ? maskXh(shares.owners[key]) : null,
+            assignments: b ? (b.assignments || []).map(a => ({ id: a.id, title: a.title, deadline: a.deadline || '' })) : [],
+            files: b ? (b.files || []).map(f => ({ id: f.id, name: f.name, size: f.size })) : [],
+            groups: b ? (b.groups || []).map(g => ({ type: g.type, num: g.num, note: g.note })) : [],
+            group: b ? (b.group || null) : null,
+            pendingGroups: b ? (b.pendingGroups || []).map(pg => ({ pid: pg.pid, action: pg.action, gid: pg.gid, group: pg.group, xhMasked: maskXh(pg.xh), submittedAt: pg.submittedAt })) : [],
+            pendingGroup: b && (b.pendingGroups || [])[0] ? { action: b.pendingGroups[0].action, group: b.pendingGroups[0].group, xhMasked: maskXh(b.pendingGroups[0].xh), submittedAt: b.pendingGroups[0].submittedAt } : null,
+            pending: b ? (b.pendingAssignments?.length || 0) + (b.pendingFiles?.length || 0) + (b.pendingGroups?.length || 0) : 0
+          }
+        })
         return json(res, 200, { boards })
       }
       if (p === '/admin/submissions' && req.method === 'GET') {
