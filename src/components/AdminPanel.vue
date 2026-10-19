@@ -51,6 +51,17 @@ const filteredBoards = computed(() => {
   return list.filter(b => (b.courseName + ' ' + (b.teacher || '')).toLowerCase().includes(q))
 })
 
+/* 板卡折叠：默认收起只留课程头（含内容计数），点击展开；一键全部展开/叠起 */
+const boardOpen = ref({})
+const toggleBoard = key => { boardOpen.value[key] = !boardOpen.value[key] }
+const allBoardsOpen = computed(() => filteredBoards.value.length > 0 && filteredBoards.value.every(b => boardOpen.value[b.key]))
+function toggleAllBoards() {
+  const target = !allBoardsOpen.value
+  const map = {}
+  for (const b of filteredBoards.value) map[b.key] = target
+  boardOpen.value = map
+}
+
 const filteredAccounts = computed(() => {
   const list = data.value?.accounts ?? []
   const q = accountQ.value.trim().toLowerCase()
@@ -330,14 +341,18 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
           <div v-if="boards?.boards.length" class="admin-toolbar">
             <input v-model="boardQ" class="admin-search" placeholder="搜索课程 / 教师…">
             <span class="admin-count">{{ filteredBoards.length }} / {{ boards.boards.length }} 个共享板</span>
+            <button class="btn sm" @click="toggleAllBoards">{{ allBoardsOpen ? '叠起全部' : '展开全部' }}</button>
           </div>
           <div v-if="filteredBoards.length">
             <div v-for="b in filteredBoards" :key="b.key" class="admin-board">
-              <div class="admin-board-head">
+              <div class="admin-board-head foldable" :title="boardOpen[b.key] ? '点击收起' : '点击展开'" @click="toggleBoard(b.key)">
+                <span class="fold-chev">{{ boardOpen[b.key] ? '▾' : '▸' }}</span>
                 {{ b.courseName }}<span class="muted"> · {{ b.teacher || '无教师' }}</span>
                 <span class="badge" :class="b.owner ? 'b-done' : 'b-none'">{{ b.owner ? '负责人 ' + b.owner : '未设负责人' }}</span>
                 <span v-if="b.pending" class="badge b-week">{{ b.pending }} 项待审</span>
+                <span class="fold-counts">📝 {{ b.assignments.length }} · 📎 {{ b.files.length }} · 👥 {{ (b.groups || []).length }}</span>
               </div>
+              <template v-if="boardOpen[b.key]">
               <template v-for="a in b.assignments" :key="a.id">
                 <div class="share-app-row">
                   <div class="share-app-main">
@@ -389,6 +404,7 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
               <AdminGroupCard :board="b" @changed="load" />
 
               <div v-if="!b.assignments.length && !b.files.length" class="muted admin-board-empty">板上暂无已上架内容</div>
+              </template>
             </div>
           </div>
           <div v-else-if="boards?.boards.length" class="empty"><span class="big">🔍</span>没有匹配的共享板</div>

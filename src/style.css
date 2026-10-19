@@ -441,6 +441,11 @@ button.stat { color: var(--text); }
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 13px; font-weight: 600; margin-bottom: 2px;
 }
+/* 可折叠的板卡课程头 */
+.admin-board-head.foldable { cursor: pointer; border-radius: 8px; padding: 2px 6px; margin-left: -6px; }
+.admin-board-head.foldable:hover { background: var(--bg-soft); }
+.fold-chev { display: inline-block; width: 14px; color: var(--muted); font-size: 11px; }
+.fold-counts { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; }
 .admin-board-empty { font-size: 12px; padding: 4px 0; }
 .admin-sub-list { display: flex; flex-direction: column; gap: 12px; }
 .admin-sub-meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
