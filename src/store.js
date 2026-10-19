@@ -157,6 +157,9 @@ async function pumpOps() {
     const r = await api.pushOps(batch)
     pushFails = 0
     if (r?.data && opSeq === seqAtSend && session.token && !session.isAdmin) adoptCanonical(r.data)
+    // 课程可能刚进云端（课表导入/手动建课/恢复备份），/sync 的按课程匹配结果会变——
+    // 排队一次防抖重拉，否则新用户要手动刷新才能看到共享 DDL（queueSyncPull 声明在后，函数提升可调）
+    queueSyncPull()
   } catch (e) {
     failed = true
     opQueue.unshift(...batch)   // 按原序放回队首
