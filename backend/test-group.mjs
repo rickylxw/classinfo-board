@@ -163,6 +163,16 @@ await withTestServer({
   const sync = await fetch(base + '/sync', { headers: { Authorization: 'Bearer ' + token('S') } }).then(r => r.json())
   ck('同课成员 /sync 收到预挂的教学群', sync[0]?.key === KEY2 && sync[0]?.groups?.length === 1 && sync[0]?.groups[0].num === '246 810', JSON.stringify(sync[0]))
 
+  // 删空板：非空 400，清空后可删，删除后枚举仍显示（exists=false）
+  const adminTok = adminAuth.Authorization.slice(7)
+  const delNonEmpty = await post('/admin/board/delete', { key: KEY2 }, adminTok)
+  ck('非空板删除被 400 拒绝', !!delNonEmpty.error, JSON.stringify(delNonEmpty))
+  await post('/board/group/delete', { key: KEY2, id: add.group.id }, adminTok)
+  const delEmpty = await post('/admin/board/delete', { key: KEY2 }, adminTok)
+  ck('空板删除成功', delEmpty.ok, JSON.stringify(delEmpty))
+  const boards2 = await adminBoards()
+  ck('删除后课程仍在枚举中（exists=false）', boards2.boards.find(x => x.key === KEY2)?.exists === false)
+
   console.log(out3.join('\n'))
   console.log(out3.every(r => r.startsWith('✅')) ? '=== 全课程覆盖验证全部通过 ===' : '=== 全课程覆盖验证存在失败 ===')
   if (!out3.every(r => r.startsWith('✅'))) process.exitCode = 1

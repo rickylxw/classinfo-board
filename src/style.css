@@ -446,6 +446,8 @@ button.stat { color: var(--text); }
 .admin-board-head.foldable:hover { background: var(--bg-soft); }
 .fold-chev { display: inline-block; width: 14px; color: var(--muted); font-size: 11px; }
 .fold-counts { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+/* 同名多班组内嵌的班级卡片 */
+.admin-board.inner { margin-left: 18px; border-left: 2px solid var(--line); padding-left: 10px; }
 .admin-board-empty { font-size: 12px; padding: 4px 0; }
 .admin-sub-list { display: flex; flex-direction: column; gap: 12px; }
 .admin-sub-meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }

@@ -101,6 +101,7 @@ export const adminShareRevoke = key => req('/admin/share/revoke', { method: 'POS
 export const adminShareAppoint = (key, xh) => req('/admin/share/appoint', { method: 'POST', body: { key, xh } })
 export const adminSubmissions = () => req('/admin/submissions')
 export const adminBoards = () => req('/admin/boards')
+export const adminDeleteBoard = key => req('/admin/board/delete', { method: 'POST', body: { key } })
 export const adminKick = xh => req('/admin/kick', { method: 'POST', body: { xh } })
 export const adminDeleteAccount = xh => req('/admin/account/' + xh, { method: 'DELETE' })
 

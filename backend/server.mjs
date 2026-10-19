@@ -794,6 +794,20 @@ http.createServer(async (req, res) => {
         })
         return json(res, 200, { boards })
       }
+      /* 删除空板：仅当板上无任何内容（作业/附件/群/全部待审）时允许，防误删真实数据 */
+      if (p === '/admin/board/delete' && req.method === 'POST') {
+        const body = await readJson(req, 65536)
+        const key = norm(body.key)
+        const b = shares.boards[key]
+        if (!b) return json(res, 404, { error: '板不存在' })
+        const count = (b.assignments?.length || 0) + (b.files?.length || 0) + (b.groups?.length || 0) +
+          (b.pendingAssignments?.length || 0) + (b.pendingFiles?.length || 0) + (b.pendingGroups?.length || 0)
+        if (count > 0) return json(res, 400, { error: `板上还有 ${count} 项内容（作业/附件/群/待审），请先清空再删除空板` })
+        delete shares.boards[key]
+        saveShares()
+        console.log(`[admin] 空板已删除 ${key}`)
+        return json(res, 200, { ok: true })
+      }
       if (p === '/admin/submissions' && req.method === 'GET') {
         // 全部课程的待审投稿（管理员审核用）
         const subs = []
