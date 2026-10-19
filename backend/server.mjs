@@ -893,11 +893,12 @@ http.createServer(async (req, res) => {
     }
     /* 共享板作业：新增/编辑/删除（仅负责人） */
     if (p === '/board/assignment/upsert' && req.method === 'POST') {
-      const s = userAuth(req)
-      if (!s) return json(res, 401, { error: '未登录或会话过期' })
+      const as = auth(req)
+      if (!as) return json(res, 401, { error: '未登录或会话过期' })
       const body = await readJson(req, 1024 * 1024)
       const key = norm(body.key)
-      if (!isOwner(s.xh, key)) return json(res, 403, { error: '仅课程负责人可编辑共享板' })
+      // 负责人与管理员同权：管理员可在控制台代为编辑/新增共享作业（无负责人课程的管理兜底）
+      if (!as.admin && !isOwner(as.xh, key)) return json(res, 403, { error: '仅课程负责人或管理员可编辑共享板' })
       if (!String(body.title || '').trim()) return json(res, 400, { error: '标题不能为空' })
       const board = boardOf(key)
       if (!body.id && board.assignments.length >= MAX_BOARD_ITEMS) return json(res, 400, { error: '该板已上架作业已达上限（200 条）' })
@@ -911,7 +912,7 @@ http.createServer(async (req, res) => {
       item.id = crypto.randomBytes(8).toString('hex')
       board.assignments.push(item)
       saveShares()
-      console.log(`[board] ${s.xh} 更新共享作业 ${key} :: ${item.title}`)
+      console.log(`[board] ${as.admin ? '管理员' : '负责人'}更新共享作业 ${key} :: ${item.title}`)
       return json(res, 200, { ok: true, id: item.id })
     }
     if (p === '/board/assignment/delete' && req.method === 'POST') {

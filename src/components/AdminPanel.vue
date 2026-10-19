@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   adminOverview, adminShares, adminShareDecision, adminShareRevoke, adminShareAppoint,
   adminSubmissions, adminBoards, adminKick, adminDeleteAccount,
-  boardDeleteAssignment, boardDeleteFile,
+  boardDeleteAssignment, boardDeleteFile, boardUpsertAssignment,
   reviewBoardGroup
 } from '../api'
 import { toast } from '../store'
@@ -125,6 +125,26 @@ async function delBoardItem(key, type, id, name) {
   if (type === 'file') await boardDeleteFile(key, id)
   else await boardDeleteAssignment(key, id)
   toast('已删除并同步')
+  load()
+}
+
+/* 共享作业编辑/新增（管理员与负责人同权；改动即同步全班） */
+const asgEdit = ref({ key: '', id: '', title: '', deadline: '', requirement: '' })
+function startAsgEdit(b, a) {
+  asgEdit.value = { key: b.key, id: a?.id || '', title: a?.title || '', deadline: a?.deadline || '', requirement: a?.requirement || '' }
+}
+function cancelAsgEdit() {
+  asgEdit.value = { key: '', id: '', title: '', deadline: '', requirement: '' }
+}
+async function saveAsgEdit() {
+  const e = asgEdit.value
+  if (!e.title.trim()) { toast('标题不能为空', 'error'); return }
+  await boardUpsertAssignment(e.key, {
+    ...(e.id ? { id: e.id } : {}),
+    title: e.title, deadline: e.deadline, requirement: e.requirement
+  })
+  toast(e.id ? '共享作业已修改并同步给全班' : '共享作业已上架并同步给全班')
+  cancelAsgEdit()
   load()
 }
 
@@ -318,13 +338,45 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
                 <span class="badge" :class="b.owner ? 'b-done' : 'b-none'">{{ b.owner ? '负责人 ' + b.owner : '未设负责人' }}</span>
                 <span v-if="b.pending" class="badge b-week">{{ b.pending }} 项待审</span>
               </div>
-              <div v-for="a in b.assignments" :key="a.id" class="share-app-row">
-                <div class="share-app-main">
-                  <span>📝 {{ a.title }}</span>
-                  <span v-if="a.deadline" class="muted"> · 截止 {{ fmt(new Date(a.deadline).getTime()) }}</span>
+              <template v-for="a in b.assignments" :key="a.id">
+                <div class="share-app-row">
+                  <div class="share-app-main">
+                    <span>📝 {{ a.title }}</span>
+                    <span v-if="a.deadline" class="muted"> · 截止 {{ fmt(new Date(a.deadline).getTime()) }}</span>
+                  </div>
+                  <span style="display:flex;gap:6px;">
+                    <button class="btn sm" @click="startAsgEdit(b, a)">✏️ 编辑</button>
+                    <button class="btn sm danger-ghost" @click="delBoardItem(b.key, 'assignment', a.id, a.title)">删除</button>
+                  </span>
                 </div>
-                <button class="btn sm danger-ghost" @click="delBoardItem(b.key, 'assignment', a.id, a.title)">删除</button>
+                <div v-if="asgEdit.key === b.key && asgEdit.id === a.id" class="admin-group-form">
+                  <div class="row2">
+                    <div class="field"><label>标题</label><input v-model="asgEdit.title" maxlength="200" placeholder="作业标题"></div>
+                    <div class="field"><label>截止时间</label><input v-model="asgEdit.deadline" placeholder="如 2026-11-05T23:59（可留空）"></div>
+                  </div>
+                  <div class="field"><label>作业要求（Markdown）</label><textarea v-model="asgEdit.requirement" rows="4" placeholder="可留空；共享作业暂不支持内嵌图片，图片请用共享附件"></textarea></div>
+                  <div class="admin-group-ops">
+                    <button class="btn sm primary" @click="saveAsgEdit">💾 保存并同步</button>
+                    <button class="btn sm" @click="cancelAsgEdit">取消</button>
+                  </div>
+                </div>
+              </template>
+              <div class="share-app-row" style="margin:4px 0 8px;">
+                <span class="muted" style="font-size:12px;">共 {{ b.assignments.length }} 项上架作业</span>
+                <button v-if="!(asgEdit.key === b.key && !asgEdit.id)" class="btn sm" @click="startAsgEdit(b, null)">➕ 添加共享作业</button>
               </div>
+              <div v-if="asgEdit.key === b.key && !asgEdit.id" class="admin-group-form">
+                <div class="row2">
+                  <div class="field"><label>标题</label><input v-model="asgEdit.title" maxlength="200" placeholder="作业标题"></div>
+                  <div class="field"><label>截止时间</label><input v-model="asgEdit.deadline" placeholder="如 2026-11-05T23:59（可留空）"></div>
+                </div>
+                <div class="field"><label>作业要求（Markdown）</label><textarea v-model="asgEdit.requirement" rows="4" placeholder="可留空；共享作业暂不支持内嵌图片，图片请用共享附件"></textarea></div>
+                <div class="admin-group-ops">
+                  <button class="btn sm primary" @click="saveAsgEdit">💾 保存并同步</button>
+                  <button class="btn sm" @click="cancelAsgEdit">取消</button>
+                </div>
+              </div>
+              <div v-if="!b.assignments.length && !b.files.length" class="muted admin-board-empty">板上暂无已上架内容</div>
               <div v-for="f in b.files" :key="f.id" class="share-app-row">
                 <div class="share-app-main">
                   <span>📎 {{ f.name }}</span>

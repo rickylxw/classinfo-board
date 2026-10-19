@@ -73,6 +73,15 @@ await withTestServer({
   const boardKept = await get('/admin/shares', admin.token)
   check('撤销后共享板数据保留（可任命新负责人）', boardKept.boardCounts[KEY] !== undefined, JSON.stringify(boardKept.boardCounts))
 
+  // 10) 撤销负责人后，管理员可直接编辑/新增共享作业（无负责人板的管理兜底，与负责人同权）
+  const bd0 = (await get('/admin/boards', admin.token)).boards.find(x => x.key === KEY)
+  const ae = await post('/board/assignment/upsert', { key: KEY, id: bd0.assignments[0].id, title: 'Lab1 进程调度（管理员改）', deadline: '2026-11-06T23:59' }, admin.token)
+  check('管理员编辑共享作业（无负责人板）', ae.ok && ae.id === bd0.assignments[0].id, JSON.stringify(ae))
+  const an = await post('/board/assignment/upsert', { key: KEY, title: '管理员代增的作业' }, admin.token)
+  check('管理员新增共享作业', an.ok && !!an.id, JSON.stringify(an))
+  const bd1 = (await get('/admin/boards', admin.token)).boards.find(x => x.key === KEY)
+  check('编辑与新增均已入板', bd1.assignments.length === 2 && bd1.assignments.some(a => a.title.includes('管理员改')), JSON.stringify(bd1.assignments))
+
   console.log(results.join('\n'))
   console.log(results.every(r => r.startsWith('✅')) ? '\n=== 全部通过 ===' : '\n=== 存在失败项 ===')
   if (!results.every(r => r.startsWith('✅'))) process.exitCode = 1
