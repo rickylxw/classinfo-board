@@ -1,8 +1,18 @@
 <script setup>
-import { computed } from 'vue'
-import { store, CATEGORIES, pendingCount, personalCount } from '../store'
+import { computed, ref } from 'vue'
+import { store, CATEGORIES, pendingCount, personalCount, exportData, importData } from '../store'
 
-defineEmits(['new-course', 'navigated'])
+const emit = defineEmits(['new-course', 'navigated', 'pull-timetable'])
+
+/* 导入备份：抽屉里的移动端入口（桌面在顶栏） */
+const importInput = ref(null)
+function pickImport() {
+  importInput.value.value = ''
+  importInput.value.click()
+}
+function onImportChange(e) {
+  if (e.target.files[0]) importData(e.target.files[0])
+}
 
 function nav(payload) {
   store.view = payload
@@ -27,6 +37,8 @@ const visibleCount = computed(() => store.courses.filter(matchCourse).length)
 </script>
 
 <template>
+  <!-- 移动端抽屉打开时的遮罩：点击任意处收起 -->
+  <button v-if="store.sidebarOpen" class="scrim" aria-label="收起菜单" @click="store.sidebarOpen = false"></button>
   <aside class="sidebar" :class="{ open: store.sidebarOpen }">
     <div class="side-title"><span>总览</span></div>
     <button
@@ -76,6 +88,16 @@ const visibleCount = computed(() => store.courses.filter(matchCourse).length)
     <div v-else class="muted" style="padding:6px 10px;font-size:12px;">暂无课程</div>
 
     <button class="side-add" @click="$emit('new-course')">＋ 新建课程</button>
-    <div class="side-tip">数据保存在本浏览器中<br>可用顶部「导出」生成备份文件</div>
+
+    <!-- 数据操作：移动端入口（≤760px 显示；桌面在顶栏，避免重复） -->
+    <div class="side-data-ops">
+      <div class="side-title" style="margin-top:10px;"><span>数据</span></div>
+      <button class="nav-item" @click="exportData()"><span>📤</span><span class="nav-name">导出备份</span></button>
+      <button class="nav-item" @click="pickImport()"><span>📥</span><span class="nav-name">导入备份</span></button>
+      <button class="nav-item" @click="emit('pull-timetable')"><span>📅</span><span class="nav-name">拉取课表</span></button>
+    </div>
+    <input type="file" ref="importInput" accept=".json,application/json" hidden @change="onImportChange">
+
+    <div class="side-tip">数据保存在本浏览器中<br>可用「导出备份」生成备份文件</div>
   </aside>
 </template>

@@ -77,6 +77,10 @@ button { font-family: inherit; cursor: pointer; }
 input, select, textarea { font-family: inherit; font-size: 14px; color: var(--text); }
 ::placeholder { color: var(--faint); }
 
+/* 触屏优化：去掉点按高亮闪烁、消除双击缩放延迟 */
+html { -webkit-tap-highlight-color: transparent; }
+button, input, select, textarea, summary, a, label { touch-action: manipulation; }
+
 /* ---------- 顶栏 ---------- */
 .topbar {
   position: sticky; top: 0; z-index: 30;
@@ -189,12 +193,23 @@ input, select, textarea { font-family: inherit; font-size: 14px; color: var(--te
 
 .side-tip { margin-top: auto; padding: 10px; font-size: 11px; color: var(--faint); line-height: 1.5; }
 
+/* 抽屉「数据」区：仅移动端显示（桌面同功能在顶栏） */
+.side-data-ops { display: none; }
+
+/* 移动端抽屉遮罩（配合 .sidebar.open 使用） */
+.scrim {
+  position: fixed; inset: 0; z-index: 55;
+  border: none; padding: 0;
+  background: rgba(8, 12, 22, .45);
+  animation: overlay-in .15s ease-out;
+}
+
 /* ---------- 主区 ---------- */
 .main { flex: 1; min-width: 0; padding: 20px 24px 48px; }
 .main-inner { max-width: 1060px; margin: 0 auto; }
 
 .page-title { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 14px; }
-.page-title h2 { margin: 0; font-size: 20px; }
+.page-title h2 { margin: 0; font-size: 20px; white-space: nowrap; flex-shrink: 0; }
 .page-title .muted { font-size: 13px; }
 
 .muted { color: var(--muted); }
@@ -599,12 +614,17 @@ button.stat { color: var(--text); }
 }
 .sch-head.today { color: var(--accent); background: var(--accent-weak); }
 .sch-date { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
-.sch-corner { border-right: 1px solid var(--line); }
+.sch-corner {
+  border-right: 1px solid var(--line); background: var(--bg-soft);
+  position: sticky; left: 0; z-index: 3;
+}
 .sch-period {
   padding: 6px 4px; text-align: center; font-size: 11px; color: var(--faint);
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
   background: var(--bg-soft);
   display: flex; align-items: center; justify-content: center;
+  /* 移动端横滚时节次列钉在左侧 */
+  position: sticky; left: 0; z-index: 2;
 }
 .sch-cell { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); min-height: 40px; }
 .sch-cell.today { background: color-mix(in srgb, var(--accent) 4%, var(--card)); }
@@ -653,21 +673,78 @@ button.stat { color: var(--text); }
   .grid2 { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
-  .topbar { flex-wrap: wrap; padding: 10px 12px; }
+  /* 触屏基础：更大的点按目标；输入框 16px 防 iOS Safari 聚焦自动放大 */
+  .btn { padding: 9px 13px; }
+  .btn.sm { padding: 7px 11px; }
+  .icon-btn { width: 38px; height: 38px; font-size: 17px; }
+
+  /* 顶栏瘦身：低频数据操作移入抽屉「数据」区，顶栏只留 会话/主题/退出/搜索 */
+  .data-ops, .top-actions .btn.primary { display: none; }
+  .side-data-ops { display: block; }
+  .chk { width: 26px; height: 26px; margin-top: 0; font-size: 13px; }
+  .copy-btn { padding: 4px 10px; font-size: 12px; }
+  input, select, textarea { font-size: 16px; }
+  .admin-search { font-size: 16px; }
+
+  /* 顶栏：搜索独占一行，动作按钮放不下自动换行 */
+  .topbar {
+    flex-wrap: wrap; row-gap: 8px;
+    padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
+  }
   .search-wrap { order: 3; max-width: none; flex-basis: 100%; }
+  .search-wrap input { padding: 9px 14px; }
+  .top-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+
+  /* 侧栏：全高抽屉、盖过顶栏，点遮罩收起 */
   .menu-btn { display: inline-flex; }
   .layout { flex-direction: column; position: relative; }
   .sidebar {
-    position: fixed; left: 0; top: 57px; bottom: 0; z-index: 40;
-    width: 262px; transform: translateX(-105%);
+    position: fixed; left: 0; top: 0; bottom: 0; z-index: 60;
+    width: min(78vw, 300px); transform: translateX(-105%);
     transition: transform .25s ease;
     box-shadow: var(--shadow-lg); overflow-y: auto;
+    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
   }
   .sidebar.open { transform: none; }
-  .main { padding: 14px; }
+
+  .main { padding: 14px 12px calc(48px + env(safe-area-inset-bottom)); }
   .row2 { grid-template-columns: 1fr; }
-  .overlay { padding: 4vh 10px; }
+  .tt-direct { flex-wrap: wrap; }
+  .app-footer { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+
+  /* 对话框 → 底部动作面板（bottom sheet），内部滚动、不被软键盘顶飞 */
+  .overlay { align-items: flex-end; padding: 0; }
+  .dlg-body {
+    width: 100%; max-width: none;
+    max-height: 92vh; max-height: 92dvh;
+    overflow-y: auto; overscroll-behavior: contain;
+    border-radius: 18px 18px 0 0; border-bottom: none;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    animation: dlg-sheet .22s ease-out;
+  }
+
+  /* 页签窄屏换行成两行，避免文字挤压 */
+  .board-tabs { flex-wrap: wrap; row-gap: 4px; }
+  .board-tab { flex: 1 1 40%; padding: 8px 4px; }
+
+  /* 课程头：标题一行、操作按钮换到下方 */
+  .course-head .ch-row { flex-wrap: wrap; }
+  .card { padding: 14px; }
+
+  /* 日程表：本周 DDL 七列太挤 → 两列 */
+  .sch-ddls { grid-template-columns: repeat(2, 1fr); }
+
+  .welcome-card { padding: 30px 20px 24px; }
+  #toasts { bottom: calc(20px + env(safe-area-inset-bottom)); }
 }
+@media (max-width: 480px) {
+  .stats { gap: 8px; }
+  .stat { padding: 10px 12px; }
+  .stat .num { font-size: 22px; }
+  .page-title h2, .course-head h2 { font-size: 18px; }
+}
+@keyframes dlg-sheet { from { opacity: 0; transform: translateY(48px); } }
 
 /* ---------- 页脚 ---------- */
 .app-footer {

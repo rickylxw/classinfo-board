@@ -128,7 +128,7 @@ function openSubmitAssignmentDialog(courseKey) {
 
     <!-- 用户 -->
     <div v-else class="layout">
-    <SideBar @new-course="openCourseDialog()" />    <main class="main">
+    <SideBar @new-course="openCourseDialog()" @pull-timetable="ui.dialog = 'timetable'" />    <main class="main">
       <div class="main-inner">
         <Dashboard
           v-if="store.view.type === 'overview'"
