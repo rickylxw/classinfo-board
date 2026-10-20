@@ -1,12 +1,12 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   adminOverview, adminShares, adminShareDecision, adminShareRevoke, adminShareAppoint,
   adminSubmissions, adminBoards, adminKick, adminDeleteAccount, adminDeleteBoard,
   boardDeleteAssignment, boardDeleteFile, boardUpsertAssignment,
   reviewBoardGroup
 } from '../api'
-import { toast } from '../store'
+import { toast, onSyncBroadcast } from '../store'
 import BoardReviewRow from './BoardReviewRow.vue'
 import AdminGroupCard from './AdminGroupCard.vue'
 
@@ -148,7 +148,21 @@ async function load() {
   } catch (e) { error.value = e.message }
   loading.value = false
 }
-onMounted(load)
+/* 广播到达（成员投稿/负责人变更等）自动刷新面板，无需手动刷新；
+ * 广播可能连发，800ms 合并成一次 load */
+let loadTimer = null
+let offSync = null
+onMounted(() => {
+  load()
+  offSync = onSyncBroadcast(() => {
+    if (loadTimer) return
+    loadTimer = setTimeout(() => { loadTimer = null; load() }, 800)
+  })
+})
+onBeforeUnmount(() => {
+  if (offSync) offSync()
+  if (loadTimer) clearTimeout(loadTimer)
+})
 
 /* 管理员删除已上架的共享作业/附件（同步给全班的删除） */
 async function delBoardItem(key, type, id, name) {

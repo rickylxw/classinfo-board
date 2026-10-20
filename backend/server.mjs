@@ -643,11 +643,11 @@ http.createServer(async (req, res) => {
     }
 
     /* 共享板变更实时流（SSE）。EventSource 无法带 Authorization 头，仅此端点接受 ?token=
-     * 校验等同 userAuth（admin 会话不需要此端点）；无效/过期 → 401 JSON。
+     * 用户与管理员会话均可挂（管理台待审队列的实时刷新依赖它）；无效/过期 → 401 JSON。
      * 注意：日志绝不打印完整 URL（含 token）。 */
     if (p === '/events' && req.method === 'GET') {
       const ts = sessions[url.searchParams.get('token') || '']
-      if (!ts || ts.admin || ts.expiresAt <= Date.now()) return json(res, 401, { error: '未登录或会话过期' })
+      if (!ts || ts.expiresAt <= Date.now()) return json(res, 401, { error: '未登录或会话过期' })
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',

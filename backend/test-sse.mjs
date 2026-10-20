@@ -52,12 +52,30 @@ await withTestServer({
   const post = (p, body, tk) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: 'Bearer ' + tk } : {}) }, body: JSON.stringify(body) }).then(j)
 
   console.log('— 鉴权 —')
+  let adminToken = ''
   {
     const bad = await fetch(base + '/events?token=not-a-real-token')
     ok(bad.status === 401, '无效 token 返回 401（非流式）')
     const admin = await post('/auth/admin-login', { username: 'admin', password: adminPass })
-    const asAdmin = await fetch(base + '/events?token=' + admin.token)
-    ok(asAdmin.status === 401, '管理员会话被拒绝（仅用户会话可用）')
+    adminToken = admin.token
+    // 管理员会话可挂实时流（管理台投稿审核的实时刷新依赖），且确实收到广播
+    const asAdmin = await fetch(base + '/events?token=' + adminToken)
+    ok(asAdmin.status === 200, '管理员会话可建立实时流')
+    const reader = asAdmin.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+    const t0 = await post('/board/group/save', { key: KEY, group: { type: 'QQ群', num: '000 111' } }, adminToken)
+    ok(t0.ok, '管理员触发一次共享板变更')
+    let got = false
+    const deadline = Date.now() + 1000
+    while (Date.now() < deadline && !got) {
+      const { done, value } = await Promise.race([reader.read(), new Promise(r => setTimeout(() => r({ done: true, value: undefined }), deadline - Date.now()))])
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      if (buf.includes('event: sync')) got = true
+    }
+    ok(got, '管理员流 1 秒内收到 event: sync')
+    await reader.cancel().catch(() => {})
   }
 
   console.log('— 连接与广播 —')

@@ -204,13 +204,26 @@ export async function fetchSyncs() {
 let syncStream = null
 let streamFails = 0
 let syncPullTimer = null
+/* 广播订阅：管理台等非 store.synced 的消费方注册回调，SSE 到达时一并通知 */
+const syncListeners = new Set()
+export function onSyncBroadcast(fn) {
+  syncListeners.add(fn)
+  return () => syncListeners.delete(fn)
+}
+function notifySyncListeners() {
+  for (const fn of [...syncListeners]) { try { fn() } catch (e) { /* 订阅者自兜底 */ } }
+}
 function queueSyncPull() {
   // 广播可能连发（审核通过批量上架等），1s 合并成一次拉取
   if (syncPullTimer) return
-  syncPullTimer = setTimeout(() => { syncPullTimer = null; fetchSyncs() }, 1000)
+  syncPullTimer = setTimeout(() => {
+    syncPullTimer = null
+    fetchSyncs()   // 用户会话刷新班级同步（管理员会话内部自行 no-op）
+    notifySyncListeners()   // 管理台投稿审核等面板刷新
+  }, 1000)
 }
 function startSyncStream() {
-  if (syncStream || !session.token || session.isAdmin) return
+  if (syncStream || !session.token) return   // 用户与管理员会话均可挂（管理台实时刷新依赖）
   try {
     syncStream = api.openSyncStream(queueSyncPull, session.token)
     syncStream.onopen = () => { streamFails = 0 }
@@ -231,9 +244,10 @@ function stopSyncStream() {
 }
 // 切回页面立即对齐一次（顺带重启被退避掐断的流）
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && session.token && !session.isAdmin) {
+  if (document.visibilityState === 'visible' && session.token) {
     startSyncStream()
-    fetchSyncs()
+    if (session.isAdmin) notifySyncListeners()
+    else fetchSyncs()
   }
 })
 
@@ -430,6 +444,7 @@ export async function initSession() {
       if (me.admin) {
         session.isAdmin = true
         session.xh = 'admin'
+        startSyncStream()   // 管理台待审队列实时刷新依赖广播
         return
       }
       session.xh = me.xh
@@ -464,9 +479,10 @@ export function handleAdminLogin(token) {
   if (session.token && !session.isAdmin) {
     localStorage.setItem('classinfo-user-backup', JSON.stringify({ token: session.token, xh: session.xh }))
   }
+  stopSyncStream()   // 掐掉旧 token 的流，换管理员 token 重挂
   api.setToken(token, 'admin')
   session.isAdmin = true
-  stopSyncStream()
+  startSyncStream()
 }
 
 /* 退出登录：清空本机全部用户数据（云端保留，重新登录取回） */
@@ -495,13 +511,14 @@ export async function doLogout() {
     // 管理员退出：若有备份的用户会话则直接恢复（不算真正登出）
     const backup = localStorage.getItem('classinfo-user-backup')
     localStorage.removeItem('classinfo-user-backup')
-    if (backup) {
-      try {
-        const { token, xh } = JSON.parse(backup)
-        api.setToken(token, xh)
-        await reconcileWithCloud()
-        fetchSyncs()
-        startSyncStream()
+      if (backup) {
+        try {
+          const { token, xh } = JSON.parse(backup)
+          api.setToken(token, xh)
+          stopSyncStream()   // 掐掉管理员 token 的流，换回用户 token 重挂
+          await reconcileWithCloud()
+          fetchSyncs()
+          startSyncStream()
         toast(`管理员已退出，已恢复用户登录：${xh}`)
         return true
       } catch (e) {
