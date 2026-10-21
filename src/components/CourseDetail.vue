@@ -1,11 +1,12 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import {
   store, toast, session, toggleAssignment, deleteAssignment, deleteCourse,
   uploadFiles, downloadFile, deleteFile, archiveDone, archiveAssignment,
   copySharedAssignment, toggleSynced, applyShare, fetchShareStatus, fetchSyncs,
   loadBoard, boardSaveAssignment, boardRemoveAssignment, boardAddFile, boardRemoveFile, downloadBoardFile,
   submitBoardFile, loadMySubmissions,
+  onSyncBroadcast,
   submitExistingAssignment, submitExistingFile,
   submitGroupProposal, reviewBoardGroupEdit,
   publishExistingAssignment, publishExistingFile,
@@ -44,6 +45,25 @@ async function apply() {
   if (r) loadShareInfo()
 }
 watch(() => props.course.id, loadShareInfo, { immediate: true })
+
+/* 共享板广播到达：整页共享状态对齐一次（负责人待审/板内容、成员我的待审、负责人身份芯片），
+ * 无需重进课程页。广播 1s 防抖 + 此处 800ms 合并；切课程页时 courseKey 跟随变化 */
+let boardSyncTimer = null
+let offBoardSync = null
+onMounted(() => {
+  offBoardSync = onSyncBroadcast(() => {
+    if (!session.xh || session.isAdmin || !props.course.name) return
+    if (boardSyncTimer) return
+    boardSyncTimer = setTimeout(() => {
+      boardSyncTimer = null
+      loadShareInfo()
+    }, 800)
+  })
+})
+onBeforeUnmount(() => {
+  if (offBoardSync) offBoardSync()
+  if (boardSyncTimer) clearTimeout(boardSyncTimer)
+})
 
 /* 本课收到的班级同步（负责人维护的共享板） */
 const synced = computed(() => store.synced[courseKey.value] || null)
