@@ -6,6 +6,7 @@ import {
   copySharedAssignment, toggleSynced, applyShare, fetchShareStatus, fetchSyncs,
   loadBoard, boardSaveAssignment, boardRemoveAssignment, boardAddFile, boardRemoveFile, downloadBoardFile,
   submitBoardFile, loadMySubmissions,
+  setFileCategory,
   onSyncBroadcast,
   submitExistingAssignment, submitExistingFile,
   submitGroupProposal, reviewBoardGroupEdit,
@@ -13,7 +14,7 @@ import {
   boardAddGroup, boardUpdateGroup, boardRemoveGroup,
   archiveSynced
 } from '../store'
-import { ddlBadge, fmtDT, fmtSize, fileIcon, courseKeyOf, openGroupChat } from '../utils'
+import { ddlBadge, fmtDT, fmtSize, fileIcon, courseKeyOf, openGroupChat, guessFileCategory, fileCategoryLabel, FILE_CATEGORIES } from '../utils'
 import RichText from './RichText.vue'
 import BoardReviewRow from './BoardReviewRow.vue'
 
@@ -100,6 +101,19 @@ const doneN = computed(() => store.assignments
 
 const files = computed(() => store.files
   .filter(f => f.courseId === props.course.id && !f.inline && matchText(f.name, f.note || '', f.url || '')))
+
+/* 附件按 课件/作业文件/其他 分组：个人附件用存储的分类（上传时自动猜、🏷️ 可改），
+ * 共享板附件按文件名智能归类展示 */
+const fileCats = computed(() => FILE_CATEGORIES.map(c => ({
+  ...c,
+  mine: files.value.filter(f => (FILE_CATEGORIES.some(x => x.id === f.category) ? f.category : 'other') === c.id),
+  shared: sharedFiles.value.filter(f => guessFileCategory(f.name) === c.id)
+})))
+function cycleFileCategory(f) {
+  const ids = FILE_CATEGORIES.map(c => c.id)
+  const cur = ids.includes(f.category) ? f.category : 'other'
+  setFileCategory(f.id, ids[(ids.indexOf(cur) + 1) % ids.length])
+}
 
 const pendingN = computed(() =>
   asgs.value.filter(a => a.status !== 'done').length + syncedPending.value)
@@ -594,41 +608,50 @@ function fileSub(f) {
               <button class="btn sm primary" @click="pickFiles">⬆️ 上传文件</button>
             </div>
           </div>
-          <div v-for="f in files" :key="f.id" class="file-item">
-            <span class="ficon">{{ fileIcon(f.name, f.kind) }}</span>
-            <div class="f-main">
-              <div class="f-name">
-                <a v-if="f.kind === 'link'" :href="f.url" target="_blank" rel="noopener" :title="f.url">{{ f.name }}</a>
-                <span v-else :title="f.name">{{ f.name }}</span>
+          <template v-for="c in fileCats" :key="c.id">
+            <template v-if="c.mine.length || c.shared.length">
+              <div class="file-cat-head">🏷️ {{ c.label }} <span class="muted">（{{ c.mine.length + c.shared.length }}）</span></div>
+              <div v-for="f in c.mine" :key="f.id" class="file-item">
+                <span class="ficon">{{ fileIcon(f.name, f.kind) }}</span>
+                <div class="f-main">
+                  <div class="f-name">
+                    <a v-if="f.kind === 'link'" :href="f.url" target="_blank" rel="noopener" :title="f.url">{{ f.name }}</a>
+                    <span v-else :title="f.name">{{ f.name }}</span>
+                  </div>
+                  <div class="f-sub">{{ fileSub(f) }}</div>
+                </div>
+                <div class="asg-ops">
+                  <button
+                    v-if="f.kind === 'blob'"
+                    class="icon-btn" :title="'分类：' + fileCategoryLabel(f.category) + '（点击更换）'"
+                    @click="cycleFileCategory(f)">🏷️</button>
+                  <button
+                    v-if="canPush && f.kind === 'blob'"
+                    class="icon-btn" :title="pushTitle"
+                    @click="pushFile(f)">📤</button>
+                  <button class="icon-btn" :title="f.kind === 'link' ? '打开链接' : '下载'" @click="downloadFile(f.id)">
+                    {{ f.kind === 'link' ? '🌐' : '⬇️' }}
+                  </button>
+                  <button class="icon-btn" title="删除" @click="deleteFile(f.id)">🗑️</button>
+                </div>
               </div>
-              <div class="f-sub">{{ fileSub(f) }}</div>
-            </div>
-            <div class="asg-ops">
-              <button
-                v-if="canPush && f.kind === 'blob'"
-                class="icon-btn" :title="pushTitle"
-                @click="pushFile(f)">📤</button>
-              <button class="icon-btn" :title="f.kind === 'link' ? '打开链接' : '下载'" @click="downloadFile(f.id)">
-                {{ f.kind === 'link' ? '🌐' : '⬇️' }}
-              </button>
-              <button class="icon-btn" title="删除" @click="deleteFile(f.id)">🗑️</button>
-            </div>
-          </div>
-          <!-- 共享板附件并入文件列表 -->
-          <div v-for="f in sharedFiles" :key="'sf-' + f.id" class="file-item">
-            <span class="ficon">📎</span>
-            <div class="f-main">
-              <div class="f-name" :title="f.name">{{ f.name }}</div>
-              <div class="f-sub">{{ fmtSize(f.size) }} · {{ sharedFrom }}</div>
-            </div>
-            <div class="asg-ops">
-              <button class="icon-btn" title="下载" @click="downloadBoardFile(courseKey, f.id, f.name)">⬇️</button>
-              <button
-                v-if="shareInfo.isOwner"
-                class="icon-btn" title="从共享板删除" @click="boardRemoveFile(courseKey, f.id)">🗑️</button>
-            </div>
-          </div>
+              <div v-for="f in c.shared" :key="'sf-' + f.id" class="file-item">
+                <span class="ficon">📎</span>
+                <div class="f-main">
+                  <div class="f-name" :title="f.name">{{ f.name }}</div>
+                  <div class="f-sub">{{ fmtSize(f.size) }} · {{ sharedFrom }}</div>
+                </div>
+                <div class="asg-ops">
+                  <button class="icon-btn" title="下载" @click="downloadBoardFile(courseKey, f.id, f.name)">⬇️</button>
+                  <button
+                    v-if="shareInfo.isOwner"
+                    class="icon-btn" title="从共享板删除" @click="boardRemoveFile(courseKey, f.id)">🗑️</button>
+                </div>
+              </div>
+            </template>
+          </template>
           <div v-if="!files.length && !sharedFiles.length" class="empty"><span class="big">📂</span>暂无文件，可上传或添加链接</div>
+          <div v-else-if="!fileCats.some(c => c.mine.length || c.shared.length)" class="muted" style="font-size:12px;">没有匹配搜索的文件</div>
           <input type="file" ref="fileInput" multiple hidden @change="onFilesChange">
         </section>
       </div>

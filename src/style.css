@@ -313,6 +313,9 @@ button.stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); b
 .group-grid a { color: var(--accent); }
 .group-grid a:hover { text-decoration: underline; }
 .group-empty { color: var(--muted); font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* 文件卡分类小节标题 */
+.file-cat-head { font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 6px; }
+.file-cat-head:first-child { margin-top: 0; }
 /* 多群列表：每个群一张横向小卡 */
 .group-item {
   display: flex; gap: 8px; align-items: flex-start;

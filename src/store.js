@@ -1,6 +1,6 @@
 /* 全局响应式状态 + 持久化（localStorage 结构化数据 / IndexedDB 文件实体 / 登录后同步云端） */
 import { reactive, watch } from 'vue'
-import { uid, courseKeyOf } from './utils'
+import { uid, courseKeyOf, guessFileCategory, fileCategoryLabel, FILE_CATEGORIES } from './utils'
 import * as api from './api'
 import { session } from './api'
 
@@ -779,7 +779,7 @@ export async function uploadFiles(list, courseId) {
   let ok = 0
   for (const file of list) {
     const id = uid()
-    const rec = { id, courseId, kind: 'blob', name: file.name, size: file.size, mime: file.type, addedAt: Date.now() }
+    const rec = { id, courseId, kind: 'blob', name: file.name, size: file.size, mime: file.type, category: guessFileCategory(file.name), addedAt: Date.now() }
     let stored = false
     try { await blobPut(id, file); stored = true }
     catch (e) {
@@ -801,7 +801,7 @@ export async function uploadFiles(list, courseId) {
 
 export function addLink(data) {
   if (!requireLogin('添加链接')) return
-  const rec = { id: uid(), kind: 'link', addedAt: Date.now(), ...data }
+  const rec = { id: uid(), kind: 'link', addedAt: Date.now(), category: guessFileCategory(data?.name || data?.url || ''), ...data }
   store.files.push(rec)
   enqueueOps([{ op: 'upsert', coll: 'files', items: [{ ...rec }] }])
   toast('链接已添加')
@@ -820,6 +820,15 @@ export async function downloadFile(id) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+}
+
+/* 更改附件分类（课件/作业文件/其他），随 ops 上云 */
+export function setFileCategory(id, category) {
+  const f = store.files.find(x => x.id === id)
+  if (!f || !FILE_CATEGORIES.some(c => c.id === category) || f.category === category) return
+  f.category = category
+  enqueueOps([{ op: 'upsert', coll: 'files', items: [{ ...f, data: undefined }] }])
+  toast('已归入「' + fileCategoryLabel(category) + '」')
 }
 
 export async function deleteFile(id) {

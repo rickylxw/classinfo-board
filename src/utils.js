@@ -95,3 +95,24 @@ export async function openGroupChat(type, num) {
   if (/数智东南/i.test(t)) return '群号已复制，请打开「数智东南」App 粘贴搜索加群'
   return '已复制：' + n
 }
+
+/* ---------- 附件分类（课件 / 作业文件 / 其他） ---------- */
+export const FILE_CATEGORIES = [
+  { id: 'courseware', label: '课件' },
+  { id: 'assignment', label: '作业文件' },
+  { id: 'other', label: '其他' }
+]
+const CATEGORY_LABELS = Object.fromEntries(FILE_CATEGORIES.map(c => [c.id, c.label]))
+export const fileCategoryLabel = id => CATEGORY_LABELS[id] || '其他'
+
+/* 按文件名猜分类：强作业特征（报告/答案/作业等）最优先，其次演示文稿扩展名与课件特征，
+ * 再「实验/Lab」弱作业特征，其余归其他 */
+export function guessFileCategory(name = '') {
+  const n = String(name).toLowerCase()
+  const dot = n.lastIndexOf('.')
+  const ext = dot > -1 ? n.slice(dot + 1) : ''
+  if (/(作业|hw[sd_-]|homework|assignment|报告|report|答案|解题|提交|ipynb)/.test(n)) return 'assignment'
+  if (['ppt', 'pptx', 'key'].includes(ext) || /(课件|讲义|lecture|slide|教材|课本|教案|chapter|第[一二三四五六七八九十d]+章)/.test(n)) return 'courseware'
+  if (/(实验|lab[sd_-]|problem|习题)/.test(n)) return 'assignment'
+  return 'other'
+}
