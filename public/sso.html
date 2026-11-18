@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>课程信息板 · 单点登录桥</title>
+<style>
+  body { font: 13px/1.8 'Segoe UI', 'Microsoft YaHei', sans-serif; color: #475569; background: #f8fafc; text-align: center; padding-top: 40vh; }
+</style>
+</head>
+<body>
+<div id="st">本页面用于向同机的「PPT 学习助手」静默传递本站登录状态，可安全关闭。</div>
+<script>
+(function () {
+  // 仅允许「PPT 学习助手」（8777 端口）索取令牌：主机名限板子自身或本机回环；
+  // 动态匹配不写死内网 IP（公开仓库红线，见 docs/repo-management.md）
+  function allowed(origin) {
+    try {
+      var u = new URL(origin)
+      return u.port === '8777' &&
+        (u.hostname === location.hostname || u.hostname === 'localhost' || u.hostname === '127.0.0.1')
+    } catch (err) { return false }
+  }
+  window.addEventListener('message', function (e) {
+    if (!allowed(e.origin)) return;
+    if (!e.data || e.data.type !== 'clh-sso-request') return;
+    var token = '';
+    try { token = localStorage.getItem('classinfo-token') || ''; } catch (err) {}
+    e.source.postMessage({ type: 'clh-sso-token', token: token }, e.origin);
+  });
+})();
+</script>
+</body>
+</html>
