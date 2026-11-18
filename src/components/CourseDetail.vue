@@ -15,6 +15,7 @@ import {
   archiveSynced
 } from '../store'
 import { ddlBadge, fmtDT, fmtSize, fileIcon, courseKeyOf, openGroupChat, guessFileCategory, fileCategoryLabel, FILE_CATEGORIES } from '../utils'
+import { qqReady } from '../qqreader'
 import RichText from './RichText.vue'
 import BoardReviewRow from './BoardReviewRow.vue'
 
@@ -200,6 +201,10 @@ async function jumpGroup(g) {
   const msg = await openGroupChat(g.type, g.num)
   if (msg) toast(msg)
 }
+/* 桌面端：跳到群消息阅读器定位这个 QQ 群的聊天记录 */
+function openGroupMessages(num) {
+  store.view = { type: 'messages', id: 'qq|group|' + String(num).trim(), q: '' }
+}
 /* 教学群（可多个）：负责人看自己维护的列表，成员看同步到的列表 */
 const groupList = computed(() => {
   const list = shareInfo.value.isOwner
@@ -256,6 +261,12 @@ function fileSub(f) {
             <span v-if="course.teacher" class="chip">👤 {{ course.teacher }}</span>
             <span v-if="course.semester" class="chip">📅 {{ course.semester }}</span>
             <span class="chip">作业 {{ asgCount }} · 文件 {{ fileCount }}</span>
+            <!-- 桌面端：课程绑定 QQ 群时一键看群消息 -->
+            <button
+              v-if="qqReady && course.group?.type === 'QQ群' && course.group?.num"
+              class="chip chip-btn"
+              title="在本机消息库里查看这个课程群的聊天记录"
+              @click="openGroupMessages(course.group.num)">💬 群消息</button>
             <!-- 课程负责人状态 -->
             <template v-if="session.xh && !session.isAdmin">
               <button v-if="shareInfo.status === 'none' && !shareInfo.hasOwner" class="chip chip-btn" title="审核通过后你将负责维护这门课的共享代办与附件" @click="apply">📨 申请成为课程负责人</button>
@@ -465,6 +476,7 @@ function fileSub(f) {
                 <span class="gl">备注</span><span class="gv">{{ g.note || '—' }}</span>
               </div>
               <div class="asg-ops">
+                <button v-if="qqReady && g.type === 'QQ群' && g.num" class="icon-btn" title="查看这个群的聊天记录（桌面端）" @click="openGroupMessages(g.num)">💬</button>
                 <button class="icon-btn" title="编辑" @click="editGroup(g)">✏️</button>
                 <button class="icon-btn" title="删除" @click="removeGroup(g.id)">🗑️</button>
               </div>
@@ -557,6 +569,7 @@ function fileSub(f) {
                 <span class="gl">备注</span><span class="gv">{{ g.note || '—' }}</span>
               </div>
               <div v-if="session.xh && !session.isAdmin && !shareInfo.isOwner" class="asg-ops">
+                <button v-if="qqReady && g.type === 'QQ群' && g.num" class="icon-btn" title="查看这个群的聊天记录（桌面端）" @click="openGroupMessages(g.num)">💬</button>
                 <button class="icon-btn" title="申请修改这个群" @click="openGroupProposal('edit', g)">✏️</button>
               </div>
             </div>

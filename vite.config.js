@@ -10,6 +10,10 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
+    // 桌面端打包产物目录不监听：打包时 exe 落盘会触发 EBUSY 把 dev 服务器搞崩
+    watch: {
+      ignored: ['**/desktop-release/**']
+    },
     // dev 环境安全头（不含 CSP：HMR 需要内联脚本，完整 CSP 由生产入口 server.mjs 提供）
     headers: {
       'X-Content-Type-Options': 'nosniff',

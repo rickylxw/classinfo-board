@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { store, CATEGORIES, pendingCount, personalCount, exportData, importData } from '../store'
+import { qqReady } from '../qqreader'
 
 const emit = defineEmits(['new-course', 'navigated', 'pull-timetable'])
 
@@ -65,6 +66,14 @@ const visibleCount = computed(() => store.courses.filter(matchCourse).length)
       :class="{ active: store.view.type === 'archive' }"
       @click="nav({ type: 'archive', id: null, q: store.view.q })">
       <span>🗃</span><span class="nav-name">归档</span>
+    </button>
+    <!-- 桌面端专属：本机消息库（QQ/微信/数智东南），服务就绪才显示 -->
+    <button
+      v-if="qqReady"
+      class="nav-item"
+      :class="{ active: store.view.type === 'messages' }"
+      @click="nav({ type: 'messages', id: null, q: '' })">
+      <span>💬</span><span class="nav-name">群消息</span>
     </button>
 
     <div class="side-title" style="margin-top:10px;">
