@@ -1,0 +1,18 @@
+{
+  "name": "课程信息板 Classinfo Board",
+  "short_name": "课程信息板",
+  "description": "课程 · 作业 DDL · 文件 · 班级共享，一站式班级课程管理",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "lang": "zh-CN",
+  "background_color": "#eef0f5",
+  "theme_color": "#5457e5",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

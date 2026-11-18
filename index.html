@@ -2,9 +2,19 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- viewport-fit=cover：全面屏安全区 env(safe-area-inset-*) 需要 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>课程信息板 · Classinfo Board</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+<!-- PWA：添加到主屏幕的名称 / 图标 / 独立窗口（局域网 http 下同样生效，Service Worker 仅 HTTPS 注册） -->
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="课程信息板">
+<!-- 状态栏/地址栏颜色；应用内手动切换深色时由 theme.js 同步改写 -->
+<meta name="theme-color" content="#eef0f5">
+<meta name="theme-color" content="#0d1017" media="(prefers-color-scheme: dark)">
 </head>
 <body>
 <div id="app"></div>
