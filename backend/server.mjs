@@ -1357,6 +1357,24 @@ http.createServer(async (req, res) => {
       }
     }
 
+    /* ---------- CLH 课件助手云同步：同源整包 GET/PUT（按学号隔离，存 data/clh/<学号>.json） ----------
+     * 课件助手已并入前端（public/clh/），其整包云同步改走本端点，复用用户会话鉴权；
+     * 载荷上限 80MB（与其原独立服务一致），原子写入防损坏。 */
+    if (p === '/clh-data' && req.method === 'GET') {
+      try {
+        const text = await readFile(path.join(DATA_DIR, 'clh', `${s.xh}.json`), 'utf8')
+        return json(res, 200, JSON.parse(text))
+      } catch { return json(res, 200, null) } // 从未同步过 → null，前端按空数据处理
+    }
+    if (p === '/clh-data' && req.method === 'PUT') {
+      const body = await readJson(req, 80 * 1024 * 1024)
+      const dir = path.join(DATA_DIR, 'clh')
+      await mkdir(dir, { recursive: true })
+      await writeJsonAtomic(path.join(dir, `${s.xh}.json`), body)
+      console.log(`[clh] ${s.xh} 云同步 ${JSON.stringify(body).length} 字节`)
+      return json(res, 200, { ok: true })
+    }
+
     return json(res, 404, { error: 'not found' })
   } catch (e) {
     // 预期内错误（fail 抛出）原样告知；其余一律脱敏，细节只进日志

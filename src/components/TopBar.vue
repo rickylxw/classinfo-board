@@ -10,12 +10,10 @@ defineEmits(['new-course', 'pull-timetable', 'login', 'toggle-sidebar'])
 const { theme, toggle } = useTheme()
 const importInput = ref(null)
 const searchInput = ref(null)
-const toolsOpen = ref(false)
 
-async function onTool(name) {
-  toolsOpen.value = false
+async function onClock() {
   try {
-    await openTool(name)
+    await openTool('clock')
   } catch (e) {
     toast(e.message, 'error')
   }
@@ -65,14 +63,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <input ref="searchInput" type="search" v-model="store.view.q" placeholder="搜索课程 / 作业 / 要求…（按 / 聚焦）">
       </div>
       <div class="top-actions">
-        <!-- 桌面端专属：本地工具窗口（浏览器/手机端不显示） -->
-        <div v-if="isDesktop" class="tools-wrap">
-          <button class="icon-btn" title="桌面工具：课件助手 / 悬浮时钟" @click="toolsOpen = !toolsOpen">🧰</button>
-          <div v-if="toolsOpen" class="tools-menu" @mouseleave="toolsOpen = false">
-            <button class="tools-item" @click="onTool('clh')">🎓 课件助手</button>
-            <button class="tools-item" @click="onTool('clock')">⏱ 悬浮时钟</button>
-          </div>
-        </div>
+        <!-- 桌面端专属：悬浮时钟开关（课件助手已并入侧栏，浏览器也可用） -->
+        <button
+          v-if="isDesktop"
+          class="icon-btn"
+          title="悬浮时钟开关（托盘菜单 / Ctrl+Alt+L 穿透锁定）"
+          @click="onClock">⏱</button>
         <button class="icon-btn" :title="theme === 'dark' ? '切换浅色' : '切换深色'" @click="toggle">{{ theme === 'dark' ? '☀️' : '🌙' }}</button>
         <template v-if="session.xh">
           <span class="chip user-chip" title="已登录：ehall 学号">👤 {{ session.xh }}</span>
@@ -91,21 +87,3 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <input type="file" ref="importInput" accept=".json,application/json" hidden @change="onImportChange">
   </header>
 </template>
-
-<style scoped>
-.tools-wrap { position: relative; display: inline-flex; }
-.tools-menu {
-  position: absolute; top: 34px; right: -8px; z-index: 50;
-  min-width: 132px; padding: 5px;
-  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-  box-shadow: var(--shadow-lg);
-  display: flex; flex-direction: column; gap: 2px;
-}
-.tools-item {
-  border: none; background: transparent; text-align: left;
-  padding: 8px 12px; border-radius: 8px;
-  font-size: 13px; color: var(--text); white-space: nowrap;
-  transition: background .12s;
-}
-.tools-item:hover { background: var(--accent-weak); color: var(--accent); }
-</style>

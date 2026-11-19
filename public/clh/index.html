@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<script>
+window.__bootErrs = [];
+window.addEventListener('error', function (e) {
+  window.__bootErrs.push('ERR: ' + (e.message || '?') + ' @ ' + (e.filename || '?').split('/').pop() + ':' + (e.lineno || 0));
+});
+window.addEventListener('unhandledrejection', function (e) {
+  window.__bootErrs.push('REJ: ' + String(e.reason).slice(0, 200));
+});
+(function () {
+  var orig = console.error;
+  console.error = function () {
+    var args = Array.prototype.slice.call(arguments);
+    window.__bootErrs.push('CE: ' + args.map(function (a) {
+      return (a && a.message) ? a.message : String(a);
+    }).join(' | ').slice(0, 220));
+    orig.apply(console, args);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Class Learning Helper · 课程学习助手</title>
+<link rel="stylesheet" href="assets/style.css?v=23">
+<link rel="stylesheet" href="lib/katex/katex.min.css">
+<style>/* 内联兜底：即使 style.css 加载失败，也绝不裸奔显示未渲染的模板 */
+[v-cloak]{display:none !important}
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <!-- ===== 顶栏 ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎓</span>
+      <div class="brand-text">
+        <b>Class Learning Helper</b>
+        <span>{{ view === 'bank' ? '课程题目本' : '作业 PPT → 思维导图 · 考点 · 题目' }}</span>
+      </div>
+    </div>
+
+    <button class="btn" @click="openCloudSync" title="与 Classinfo Board 共用账号，云端保存课程/导图/题目/知识点">☁️ 云同步</button>
+
+    <button class="btn review" @click="openReview" :disabled="!activeCourse" title="用考点和题目生成复习卡片">📖 复习</button>
+
+    <button class="btn" @click="openStats" :disabled="!activeCourse" title="错题追踪与知识点掌握度">📊 弱点</button>
+
+    <div class="actions" v-show="view === 'map'">
+      <button class="btn primary" @click="pickFile" :disabled="!activeCourse">📂 打开 PPT / PDF</button>
+      <input ref="fileInput" type="file" accept=".pptx,.pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf" multiple hidden @change="onFile">
+      <button class="btn" @click="pickFolder" :disabled="!activeCourse" title="选择一个文件夹，导入其中全部 .pptx / .pdf">📁 打开文件夹</button>
+      <input ref="folderInput" type="file" webkitdirectory hidden @change="onFolder">
+
+      <span class="v-sep"></span>
+
+      <label class="switch" title="自动精简每个节点的文字">
+        <input type="checkbox" v-model="settings.condense"><i></i><span>精简文字</span>
+      </label>
+      <label class="switch" title="把演讲者备注也加入导图">
+        <input type="checkbox" v-model="settings.includeNotes"><i></i><span>包含备注</span>
+      </label>
+
+      <span class="v-sep"></span>
+
+      <button class="btn" :disabled="!tree" @click="expandAll">展开全部</button>
+      <button class="btn" :disabled="!tree" @click="collapseBranches">收起分支</button>
+      <button class="btn ai" :disabled="!slides.length || aiLoading" @click="aiSummarize" :title="aiButtonTitle">
+        {{ aiLoading ? '✨ AI 总结中…' : '✨ AI 总结' }}
+      </button>
+      <button class="btn board" :disabled="!activeCourse" @click="openBoardFiles" title="从 Board 共享附件拉取课件 PPT 分析">
+        ☁️ Board 附件
+      </button>
+      <button class="btn board" :disabled="!activeDeck" @click="openBoardSubmit(activeDeck)" title="把本作业的课件 PPT 原件投递到 Board 共享附件">
+        📨 投附件
+      </button>
+      <button class="btn kp" :disabled="!slides.length" @click="showKP = !showKP"
+              title="提取重要知识点 / 考点">
+        📌 考点<span v-if="kpList.length" class="kp-badge">{{ kpList.length }}</span>
+      </button>
+
+      <div class="menu-wrap">
+        <button class="btn" :disabled="!tree" @click.stop="exportMenu = !exportMenu">导出 ▾</button>
+        <div v-if="exportMenu" class="menu" @click.stop>
+          <button @click="exportPNG">🖼 PNG 图片</button>
+          <button @click="exportSVG">✏️ SVG 矢量图</button>
+          <button @click="exportMarkdown">📝 Markdown</button>
+          <button @click="exportJSON">🧩 JSON</button>
+          <button @click="exportFreeMind">🌳 FreeMind (.mm)</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions" v-show="view === 'bank'">
+      <button class="btn" @click="goMap">← 导图视图</button>
+      <button class="btn primary" @click="pickImages" :disabled="!activeCourse">📷 导入题目图片</button>
+      <input ref="imgInput" type="file" accept="image/*" multiple hidden @change="onImages">
+      <button class="btn board" :disabled="!activeCourse || !bankItems.length" @click="openBoardPush"
+              title="把本课程考点与题目推送为 Board 的个人作业">
+        🚀 推送到 Board
+      </button>
+      <button class="btn" :disabled="!bankItems.length" @click="exportCourseBoard"
+              title="导出课程级 题目+知识点 数据（Classinfo Board 导入格式）">⬇ Board JSON</button>
+    </div>
+
+    <button class="btn ghost" @click="openAI" title="配置 AI 接口（可选）">⚙ 设置</button>
+  </header>
+
+  <!-- ===== 主体 ===== -->
+  <div class="main">
+    <!-- 侧栏：课程 / 作业 / 题目本 -->
+    <aside class="sidebar wide">
+      <div class="side-head">
+        <span>我的课程</span>
+        <button class="mini" @click="startAddCourse" v-if="!addingCourse">＋ 新建课程</button>
+      </div>
+      <div class="add-course" v-if="addingCourse">
+        <input v-model="newCourseName" placeholder="课程名称，回车确认"
+               @keydown.enter="confirmAddCourse" @keydown.esc="addingCourse = false">
+      </div>
+      <div class="course-list">
+        <div v-if="!courses.length" class="side-empty">还没有课程<br>先点上方「＋ 新建课程」<br>或直接拖入作业 PPT</div>
+        <div v-for="c in courses" :key="c.id" class="course-block">
+          <div class="course-row">
+            <span class="cname" :title="c.name" @click="openBank(c)">{{ c.name }}</span>
+            <span class="cbtn" v-if="renamingId !== c.id" @click.stop="startRename(c)" title="重命名">✎</span>
+            <span class="cbtn" @click.stop="removeCourse(c)" title="删除课程">🗑</span>
+          </div>
+          <input class="rename-input" v-if="renamingId === c.id" v-model="renameValue"
+                 @keydown.enter="confirmRename(c)" @blur="confirmRename(c)" :ref="el => setRenameEl(el)">
+          <div class="deck-list">
+            <div v-for="d in c.decks" :key="d.id" class="deck-item"
+                 :class="{ active: view === 'map' && d.id === activeDeckId }" @click="openDeck(c.id, d.id)"
+                 :title="d.name">
+              <span class="no">📄</span>
+              <span class="t">{{ d.name }}</span>
+              <span class="cbtn send" @click.stop="openBoardSubmit(d)" title="投递到 Board 共享附件">📨</span>
+              <span class="cbtn" @click.stop="removeDeck(c, d)" title="移除">✕</span>
+            </div>
+            <div class="deck-item bank-link" @click="openBank(c)">
+              <span class="no">📝</span>
+              <span class="t">题目本</span>
+              <span class="cnt">{{ bankCount(c) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ========== 导图视图 ========== -->
+    <template v-if="view === 'map'">
+      <section class="canvas" ref="canvasEl"
+               @pointerdown="onCanvasDown" @pointermove="onCanvasMove" @pointerup="onCanvasUp" @pointerleave="onCanvasUp"
+               @wheel.prevent="onWheel" @dragover.prevent="dragActive = true" @dragleave="dragActive = false"
+               @drop.prevent="onDrop">
+        <svg ref="svgEl" :width="canvasW" :height="canvasH"
+             font-family="'Segoe UI','Microsoft YaHei',system-ui,sans-serif" style="touch-action:none">
+          <g :transform="`translate(${view.x},${view.y}) scale(${view.k})`">
+            <path v-for="l in links" :key="l.key" :d="l.d" :stroke="l.color"
+                  :stroke-width="l.w" fill="none" stroke-linecap="round" opacity="0.85"/>
+            <g v-for="n in nodes" :key="n.id" class="node"
+               :class="{ selected: n.id === selectedId }"
+               :transform="`translate(${n.x},${n.y})`"
+               @click.stop="onNodeClick(n)" @dblclick.stop="startEdit(n)">
+              <rect :width="n.w" :height="n.h" rx="9" :fill="n.fill" :stroke="n.stroke" :stroke-width="n.sw"/>
+              <text v-for="(ln, i) in n.lines" :key="i"
+                    :x="n.textX" :y="n.textY0 + i * n.lh"
+                    :font-size="n.fs" :font-weight="n.fw" :fill="n.color" :text-anchor="n.anchor">{{ ln }}</text>
+              <text v-if="n.star" :x="n.side === 1 ? n.w + 5 : -5" y="6"
+                    font-size="13" text-anchor="middle">⭐</text>
+              <g v-if="n.childrenCount" class="toggle" @click.stop="toggleNode(n)">
+                <circle :cx="n.toggleX" :cy="n.h / 2" r="8" :fill="n.stroke" stroke="#fff" stroke-width="1.5"/>
+                <text :x="n.toggleX" :y="n.h / 2 + 3.5" text-anchor="middle" font-size="11"
+                      fill="#fff" font-weight="bold">{{ n.collapsed ? '+' : '−' }}</text>
+              </g>
+              <text v-if="n.collapsed" :x="n.countX" :y="n.h / 2 + 4"
+                    :text-anchor="n.side === 1 ? 'start' : 'end'" font-size="11" fill="#94a3b8">{{ n.childrenCount }} 项</text>
+            </g>
+          </g>
+        </svg>
+
+        <!-- 空状态 -->
+        <div v-if="!slides.length && !loadingText" class="dropzone" :class="{ over: dragActive }"
+             @click="pickFile" @dragover.prevent="dragActive = true">
+          <div class="dz-icon">📊 → 🧠</div>
+          <h2>{{ activeCourse ? '把课件或整个文件夹拖到这里，加入「' + activeCourse.name + '」' : '把课件或整个文件夹拖到这里' }}</h2>
+          <p class="dz-hint">
+            支持 <b>.pptx / .pdf</b>（文字版），可多选或拖入整个文件夹；旧版 .ppt 请先另存为 .pptx<br>
+            全程浏览器本地解析，文件不会上传；扫描图片里的文字暂无法提取
+          </p>
+          <button class="btn primary big" @click.stop="pickFile">选择文件</button>
+          <p class="dz-demo">
+            <a class="folder-link" @click.stop.prevent="pickFolder">📁 选择整个文件夹</a>
+            　·　没有文件？<a :href="demoUrl" @click.stop>下载示例课件试试</a>
+          </p>
+        </div>
+
+        <div v-if="loadingText" class="loading">
+          <div class="spinner"></div>
+          <p>{{ loadingText }}</p>
+        </div>
+
+        <div class="zoom-ctrl" v-show="tree">
+          <button @click="zoomIn" title="放大">＋</button>
+          <button @click="fitView" title="适应窗口">⛶</button>
+          <button @click="zoomOut" title="缩小">－</button>
+        </div>
+      </section>
+
+      <!-- 考点 / 题目抽屉 -->
+      <aside class="kp-drawer" v-show="showKP">
+        <div class="kp-head">
+          <b>📌 知识点 / 考点</b>
+          <button class="kp-close" @click="showKP = false" title="收起">✕</button>
+        </div>
+        <div class="kp-tabs">
+          <button class="kp-tab" :class="{ on: kpTab === 'points' }" @click="kpTab = 'points'">
+            📌 考点 <em>{{ kpList.length }}</em>
+          </button>
+          <button class="kp-tab" :class="{ on: kpTab === 'questions' }" @click="kpTab = 'questions'">
+            📝 题目 <em>{{ qList.length }}</em>
+          </button>
+        </div>
+        <div class="kp-tools">
+          <button class="btn sm" @click="extractLocal" title="用本地规则重新提取">🔄 重新提取</button>
+          <button class="btn ai sm" :disabled="kpAILoading" @click="extractAI"
+                  :title="settings.ai.baseUrl ? '用 AI 重新提取考点与题目' : '先在设置中配置 AI 接口（可选）'">
+            {{ kpAILoading ? '✨ 提取中…' : '✨ AI 提取' }}
+          </button>
+          <button v-if="kpTab === 'points'" class="btn sm" :disabled="!kpList.length" @click="exportKP">⬇ 考点清单</button>
+          <button v-else class="btn sm" :disabled="!qList.length" @click="exportBoard"
+                  title="导出题目+知识点关联数据（Classinfo Board 导入格式）">⬇ Board JSON</button>
+        </div>
+        <div class="kp-hint" v-if="!kpAILoading">
+          <template v-if="kpTab === 'points'">{{ kpSource === 'ai' ? '来源：AI 提取' : '来源：本地规则（重点动词 / 考点词 / 定义 / 对比表 / 小结 / 作业）' }}</template>
+          <template v-else>题目自动识别后归类到知识点：同页优先，跨页按文本相似度匹配</template>
+        </div>
+
+        <div class="kp-stats" v-if="kpTab === 'points' && kpList.length">
+          <span class="chip" :class="{ on: kpFilter === 0 }" @click="kpFilter = 0">全部 {{ kpList.length }}</span>
+          <span class="chip s3" :class="{ on: kpFilter === 3 }" @click="kpFilter = 3">★★★ {{ kpStats[3] }}</span>
+          <span class="chip s2" :class="{ on: kpFilter === 2 }" @click="kpFilter = 2">★★ {{ kpStats[2] }}</span>
+          <span class="chip s1" :class="{ on: kpFilter === 1 }" @click="kpFilter = 1">★ {{ kpStats[1] }}</span>
+        </div>
+
+        <div class="kp-list">
+          <template v-if="kpTab === 'points'">
+            <div v-if="!slides.length" class="kp-empty">先打开一个 PPT，再来提取考点</div>
+            <div v-else-if="kpAILoading" class="kp-empty">正在提取…</div>
+            <div v-else-if="!kpList.length" class="kp-empty">没有提取到明显考点<br>可尝试「✨ AI 提取」</div>
+            <div v-for="p in kpFiltered" :key="p.text + p.slideNo" class="kp-item"
+                 :title="'定位到第 ' + p.slideNo + ' 页'" @click="focusSlide(p.slideNo)">
+              <div class="kp-line">
+                <span class="kp-stars" :class="'s' + p.stars">{{ '★'.repeat(p.stars) }}<i>{{ '☆'.repeat(3 - p.stars) }}</i></span>
+                <span class="kp-page">P{{ p.slideNo }}</span>
+              </div>
+              <div class="kp-text">{{ p.text }}</div>
+              <div class="kp-tags" v-if="p.tags.length">
+                <span v-for="t in p.tags" :key="t" class="tag">{{ t }}</span>
+              </div>
+            </div>
+          </template>
+
+          <template v-else>
+            <div v-if="!slides.length" class="kp-empty">先打开一个 PPT</div>
+            <div v-else-if="kpAILoading" class="kp-empty">正在识别题目…</div>
+            <div v-else-if="!qList.length" class="kp-empty">没有识别到题目<br>可尝试「✨ AI 提取」</div>
+            <div v-for="(q, i) in qList" :key="q.text + q.slideNo + i" class="kp-item"
+                 :title="'定位到第 ' + q.slideNo + ' 页'" @click="focusSlide(q.slideNo)">
+              <div class="kp-line">
+                <span class="q-type" :class="'q' + q.type">{{ q.type }}</span>
+                <span class="kp-page">P{{ q.slideNo }}</span>
+              </div>
+              <div class="kp-text">{{ q.text }}</div>
+              <div class="kp-tags" v-if="q.points.length">
+                <span v-for="pt in q.points" :key="pt" class="tag link" :title="'知识点：' + pt">📌 {{ pt.slice(0, 14) }}{{ pt.length > 14 ? '…' : '' }}</span>
+              </div>
+              <div class="kp-tags" v-else><span class="tag">未匹配到知识点</span></div>
+            </div>
+          </template>
+        </div>
+      </aside>
+    </template>
+
+    <!-- ========== 题目本视图 ========== -->
+    <section class="bank" v-if="view === 'bank'">
+      <div class="bank-head">
+        <div class="bank-title">
+          <b>{{ activeCourse ? activeCourse.name : '题目本' }}</b><em>共 {{ bankItems.length }} 题</em>
+        </div>
+        <div class="bank-filter" v-if="bankItems.length">
+          <span class="chip" :class="{ on: bankFilter === '' }" @click="bankFilter = ''">全部</span>
+          <span v-for="t in bankTypes" :key="t" class="chip" :class="{ on: bankFilter === t }" @click="bankFilter = t">{{ t }} {{ bankTypeCount(t) }}</span>
+        </div>
+        <div class="bank-practice">
+          <label class="push-check"><input type="checkbox" v-model="settings.practiceMode"> 🎯 练习模式（隐藏解答）</label>
+          <span class="chip" :class="{ on: bankStatus === '' }" @click="bankStatus = ''">状态</span>
+          <span class="chip" :class="{ on: bankStatus === '待做' }" @click="bankStatus = '待做'">待做 {{ statItems.filter(s => s.status === '未做' || s.status === '跳过').length }}</span>
+          <span class="chip" :class="{ on: bankStatus === '错' }" @click="bankStatus = '错'">错题 {{ statItems.filter(s => s.status === '错').length }}</span>
+          <span class="chip" :class="{ on: bankStatus === '对' }" @click="bankStatus = '对'">已对 {{ statItems.filter(s => s.status === '对').length }}</span>
+        </div>
+      </div>
+      <div class="bank-hint" v-if="!settings.ai.apiKey && activeCourse">
+        💡 未配置 AI：图片题将用浏览器本地 OCR 识别文字（首次需联网下载引擎，中文识别较慢），
+        题面与解题方式可手动补充完善。配置 AI 后可自动生成 MD 题面、解题方式和知识点归类。
+      </div>
+      <div class="bank-list">
+        <div v-if="!activeCourse" class="kp-empty">先创建课程</div>
+        <div v-else-if="!bankItems.length" class="kp-empty">
+          还没有题目<br>点上方「📷 导入题目图片」，或打开作业 PPT 自动收集题目
+        </div>
+        <div v-for="q in bankFiltered" :key="q.key" class="bank-card">
+          <div class="bc-head">
+            <span class="q-type" :class="'q' + q.type">{{ q.type }}</span>
+            <span class="bc-src">{{ q.source === 'image' ? '📷 图片题' : q.deckName }}</span>
+            <span class="grow"></span>
+            <select v-if="q.source === 'image'" class="type-select" :value="q.type"
+                    @change="setType(q, $event.target.value)" title="修改题型">
+              <option v-for="t in ['选择','填空','判断','计算','简答','思考','例题','习题','其他']" :key="t" :value="t">{{ t }}</option>
+            </select>
+            <span class="cbtn" v-if="q.source === 'image'" @click="removeImageQ(q)" title="删除">🗑</span>
+          </div>
+          <div class="bc-body">
+            <img v-if="q.imageData" class="bc-thumb" loading="lazy" :src="q.imageData" @click="previewImage = q.imageData" title="点击查看大图">
+            <div class="bc-main">
+              <div v-if="q.status === 'processing'" class="bc-note">识别中…（{{ q.progressMsg || '首次使用需下载中文 OCR 引擎（约 15MB），请耐心等待' }}）</div>
+              <div v-else-if="q.status === 'error'" class="bc-note err">
+                {{ q.errMsg }}　<a class="retry" @click="processImage(q)">重试</a>
+              </div>
+              <template v-else>
+                <div class="md-body" v-if="q.md" v-html="renderMD(q.md)"></div>
+                <div class="md-body" v-else-if="q.text">{{ q.text }}</div>
+                <div v-else class="bc-note">（无题面）</div>
+
+                <template v-if="!settings.practiceMode || revealMap[q.key]">
+                  <details class="sol" :open="!!q.solution">
+                    <summary>💡 解题方式</summary>
+                    <div class="md-body" v-if="q.solution" v-html="renderMD(q.solution)"></div>
+                    <p v-else class="bc-note">暂无，可手动补充 ↓</p>
+                    <textarea v-if="q.source === 'image'" class="sol-edit" v-model="q.solution"
+                              @change="touchImageQ(q)" placeholder="补充 / 修改解题方式（支持 Markdown）"></textarea>
+                  </details>
+                  <div class="kp-tags">
+                    <span v-for="pt in q.points" :key="pt" class="tag link"
+                          :title="q.source === 'image' ? '点击移除' : pt"
+                          @click="q.source === 'image' && unassignPoint(q, pt)">📌 {{ pt.slice(0, 16) }}{{ pt.length > 16 ? '…' : '' }}</span>
+                    <select v-if="q.source === 'image'" class="assign-select" @change="assignPoint(q, $event.target.value); $event.target.value = ''">
+                      <option value="">＋ 分配到知识点…</option>
+                      <option v-for="p in coursePointNames" :key="p" :value="p"
+                              :disabled="q.points.includes(p)">{{ p.slice(0, 20) }}</option>
+                    </select>
+                  </div>
+                </template>
+                <div v-else class="practice-hint">
+                  <button class="btn sm primary" @click="revealMap[q.key] = true">👁 看解答与知识点</button>
+                </div>
+
+                <div class="practice-bar">
+                  <span class="att-status" :class="'a-' + attStatus(q)">{{ attStatus(q) }}</span>
+                  <button class="btn sm ok" @click="recordAttempt(q, '对')">✓ 对</button>
+                  <button class="btn sm wrong" @click="toggleWrongTag(q)">✗ 错</button>
+                  <button class="btn sm skip" @click="recordAttempt(q, '跳过')">⤼ 跳过</button>
+                  <span v-if="wrongSel === qKeyOf(q)" class="wrong-tags">
+                    <span v-for="t in WRONG_TAGS" :key="t" class="tag wtag" @click="recordAttempt(q, '错', t)">{{ t }}</span>
+                    <span class="tag wtag" @click="recordAttempt(q, '错')">不标原因</span>
+                  </span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 复习模式 ========== -->
+    <section class="review" v-else-if="view === 'review'">
+      <div class="rv-head">
+        <div class="rv-title"><b>📖 复习模式</b><em>{{ activeCourse ? activeCourse.name : '' }}</em></div>
+        <button class="btn sm" @click="goMap" style="margin-left:10px">← 导图视图</button>
+        <span class="grow"></span>
+        <div class="rv-filters">
+          <span class="chip" :class="{ on: rvFilter === 'all' }" @click="rvFilterSet('all')">全部 {{ reviewCards.length }}</span>
+          <span class="chip" :class="{ on: rvFilter === 3 }" @click="rvFilterSet(3)">★★★ {{ rvCounts[3] }}</span>
+          <span class="chip" :class="{ on: rvFilter === 2 }" @click="rvFilterSet(2)">★★ {{ rvCounts[2] }}</span>
+          <span class="chip" :class="{ on: rvFilter === 1 }" @click="rvFilterSet(1)">★ {{ rvCounts[1] }}</span>
+          <span class="chip" :class="{ on: rvFilter === 'q' }" @click="rvFilterSet('q')">✏️ 题目 {{ rvCounts.q }}</span>
+          <span class="chip" :class="{ on: rvFilter === 'again' }" @click="rvFilterSet('again')">🔁 待复习 {{ againCount }}</span>
+        </div>
+      </div>
+      <div class="rv-stage" v-if="rvCards.length && rvCurrent">
+        <div class="rv-progress">{{ rvIdx + 1 }} / {{ rvCards.length }}</div>
+        <div class="rv-card" :class="{ flipped: rvFlipped }" @click="rvFlipped = !rvFlipped">
+          <div class="rv-badge">
+            <span v-if="rvCurrent.type === 'point'" class="kp-stars" :class="'s' + rvCurrent.stars">{{ '★'.repeat(rvCurrent.stars) }}</span>
+            <span v-else class="q-type" :class="'q' + rvCurrent.qtype">{{ rvCurrent.qtype || '题目' }}</span>
+            <span class="rv-src">📁 {{ rvCurrent.deckName }}<template v-if="rvCurrent.slideNo"> · P{{ rvCurrent.slideNo }}</template></span>
+          </div>
+          <img v-if="rvCurrent.imageData && !rvFlipped" class="rv-thumb" loading="lazy" :src="rvCurrent.imageData" @click.stop="previewImage = rvCurrent.imageData" title="点击查看大图">
+          <div class="rv-q" v-if="rvCurrent.type === 'point'">{{ rvCurrent.text }}</div>
+          <div class="rv-q" v-else>{{ rvCurrent.md || rvCurrent.text }}</div>
+          <div class="rv-input" v-if="rvGradable"
+               @click.stop>
+            <input v-model="rvInput" :disabled="rvGraded"
+                   :placeholder="rvCurrent.qtype === '选择' ? '输入选项，如 A' : '输入你的答案'"
+                   @keydown.enter.stop="rvSubmit" @keydown.esc.stop>
+            <button v-if="!rvGraded" class="btn sm primary" @click.stop="rvSubmit">提交</button>
+            <span v-if="rvGraded" class="rv-verdict" :class="rvVerdictOK ? 'ok' : 'bad'">{{ rvVerdictOK ? '✓ 正确' : '✗ 不对' }}</span>
+          </div>
+          <div class="rv-tip">点击卡片{{ rvFlipped ? '收起' : '查看答案' }}　·　空格翻面　·　← → 切换</div>
+          <div class="rv-back" v-if="rvFlipped">
+            <template v-if="rvCurrent.type === 'point'">
+              <div class="rv-back-title">📌 本页要点（P{{ rvCurrent.slideNo }}）</div>
+              <ul><li v-for="(line, i) in rvCurrent.context" :key="i">{{ line }}</li></ul>
+              <div class="rv-meta" v-if="rvCurrent.tags.length">标签：{{ rvCurrent.tags.join(' / ') }}</div>
+            </template>
+            <template v-else>
+              <template v-if="rvCurrent.answer">
+                <div class="rv-back-title">✅ 标准答案</div>
+                <div class="rv-answer">{{ rvCurrent.answer }}</div>
+              </template>
+              <template v-if="rvCurrent.pitfalls && rvCurrent.pitfalls.length">
+                <div class="rv-back-title">⚠️ 易错点</div>
+                <ul class="rv-pitfalls"><li v-for="(p, i) in rvCurrent.pitfalls" :key="i">{{ p }}</li></ul>
+              </template>
+              <div class="rv-back-title">💡 解题方式</div>
+              <div class="md-body" v-if="rvCurrent.solution" v-html="renderMD(rvCurrent.solution)"></div>
+              <div v-else class="bc-note">暂无解答。关联知识点：{{ (rvCurrent.points || []).join('、') || '未分类' }}</div>
+            </template>
+          </div>
+        </div>
+        <div class="rv-btns">
+          <button class="btn" @click="rvPrev">← 上一张</button>
+          <button class="btn again" @click="rvMark('again')">😵 没记住</button>
+          <button class="btn" @click="rvNext">跳过 →</button>
+          <button class="btn known" @click="rvMark('known')">✓ 记住了</button>
+        </div>
+      </div>
+      <div v-else class="rv-empty">
+        {{ activeCourse ? '没有可复习的内容 —— 先导入课件，考点和题目会自动出现在这里' : '先创建并选择一门课程' }}
+      </div>
+    </section>
+
+    <!-- ========== 弱点画像 ========== -->
+    <section class="stats" v-else-if="view === 'stats'">
+      <div class="bank-head">
+        <div class="bank-title"><b>📊 弱点画像</b><em>{{ activeCourse ? activeCourse.name : '' }}</em></div>
+        <button class="btn" @click="viewMode = 'map'">← 返回</button>
+      </div>
+      <div class="stats-body" v-if="activeCourse">
+        <div v-if="!statItems.length" class="kp-empty">当前课程还没有题目 —— 导入课件后这里会自动生成</div>
+        <template v-else>
+          <div class="stat-row">
+            <div class="stat-card">总题数<b>{{ statItems.length }}</b></div>
+            <div class="stat-card ok">✓ 对<b>{{ attemptSummary['对'] || 0 }}</b></div>
+            <div class="stat-card bad">✗ 错<b>{{ attemptSummary['错'] || 0 }}</b></div>
+            <div class="stat-card">⤼ 跳过<b>{{ attemptSummary['跳过'] || 0 }}</b></div>
+            <div class="stat-card">未做<b>{{ attemptSummary['未做'] || 0 }}</b></div>
+          </div>
+          <div class="stats-block">
+            <div class="stats-title">🩹 错因分布（概念全对、约定和末端全错 —— 这种聚类只有数据能看出来）</div>
+            <div v-for="w in wrongTagStats" :key="w.tag" class="wtag-row">
+              <span class="wtag-name">{{ w.tag }}</span>
+              <div class="wtag-bar"><div class="wtag-fill" :style="{ width: w.pct + '%' }"></div></div>
+              <span class="wtag-n">{{ w.count }}</span>
+            </div>
+            <div v-if="!wrongTagStats.length" class="bc-note">还没有错题记录</div>
+          </div>
+          <div class="stats-block">
+            <div class="stats-title">🎯 知识点掌握度（按错题数排序，考前一眼看到该补哪）</div>
+            <div v-for="k in kpMastery" :key="k.name" class="wtag-row">
+              <span class="wtag-name" :title="k.name">{{ k.name.slice(0, 22) }}</span>
+              <div class="wtag-bar"><div class="wtag-fill" :class="k.level" :style="{ width: k.mastery + '%' }"></div></div>
+              <span class="wtag-n">{{ k.wrong }}错 / {{ k.total }}题</span>
+            </div>
+            <div v-if="!kpMastery.length" class="bc-note">题目还没有关联知识点（AI 提取后会自动归类）</div>
+          </div>
+          <div class="stats-block">
+            <div class="stats-title">❌ 错题列表（{{ wrongItems.length }}）</div>
+            <div v-for="(w, i) in wrongItems" :key="w.key + i" class="bank-card slim">
+              <div class="bc-head">
+                <span class="q-type" :class="'q' + w.type">{{ w.type }}</span>
+                <span class="bc-src">{{ w.deckName }}<template v-if="w.slideNo"> · P{{ w.slideNo }}</template></span>
+                <span class="grow"></span>
+                <span v-for="t in w.wrongTags" :key="t" class="tag wtag">{{ t }}</span>
+              </div>
+              <div class="rv-q slim">{{ w.md || w.text }}</div>
+            </div>
+            <div v-if="!wrongItems.length" class="bc-note">没有错题，保持 👍</div>
+          </div>
+        </template>
+      </div>
+    </section>
+  </div>
+
+  <!-- 节点编辑浮层 -->
+  <textarea v-if="editing" class="node-editor" v-model="editing.value"
+            :style="editing.style" @keydown.enter.prevent="endEdit(true)" @keydown.esc.prevent="endEdit(false)"
+            @blur="endEdit(true)" :ref="el => editorEl = el" spellcheck="false"></textarea>
+
+  <!-- ===== 状态栏 ===== -->
+  <footer class="statusbar" v-if="view === 'map'">
+    <span v-if="tree">共 {{ slides.length }} 页 · {{ nodes.length }} 个可见节点 · 折叠 {{ collapsedCount }} 处</span>
+    <span v-else>{{ activeCourse ? '当前课程：' + activeCourse.name + ' · 打开一个 .pptx 开始' : '创建课程或拖入 PPT 开始' }}</span>
+    <span class="grow"></span>
+    <span class="tips">拖拽平移 · 滚轮缩放 · 双击节点改文字 · 点击序号定位</span>
+    <span v-if="tree" class="zoom-pct">{{ Math.round(view.k * 100) }}%</span>
+  </footer>
+  <footer class="statusbar" v-else>
+    <span>{{ activeCourse ? '课程：' + activeCourse.name : '' }} · 数据保存在本浏览器（IndexedDB）</span>
+  </footer>
+
+  <!-- ===== 云同步弹窗 ===== -->
+  <div class="mask" v-if="showCloud" @click.self="showCloud = false">
+    <div class="modal">
+      <h3>☁️ 云同步</h3>
+      <p class="modal-tip">
+        与 Classinfo Board <b>共用账号</b>（学号 + 应用密码），课程 / 思维导图 / 题目 / 知识点
+        按账号保存在服务器上，换设备登录即取回。
+      </p>
+      <div v-if="cloudErr" class="push-err">⚠️ {{ cloudErr }}</div>
+      <template v-if="cloudInfo">
+        <p class="push-file-line">👤 已登录：{{ cloudInfo }}</p>
+        <label class="push-check"><input type="checkbox" v-model="settings.cloudAuto"> 修改后自动上传（防抖 2.5 秒）</label>
+        <p class="modal-tip" style="margin-top:4px">最近同步：{{ lastSyncAt ? new Date(lastSyncAt).toLocaleString() : '尚未同步' }}</p>
+        <p class="modal-tip">多设备同时编辑时，后保存的会覆盖先保存的；课件 PPT 原件仍保存在本机浏览器中。</p>
+        <div class="modal-btns">
+          <button class="btn" @click="cloudPull" :disabled="cloudBusy">⬇ 拉取云端（覆盖本地）</button>
+          <button class="btn primary" @click="cloudPushNow" :disabled="cloudBusy">⬆ 上传本地（覆盖云端）</button>
+        </div>
+      </template>
+      <div v-else-if="cloudBusy" class="kp-empty">登录中…</div>
+    </div>
+  </div>
+
+  <!-- ===== AI 设置弹窗 ===== -->
+  <div class="mask" v-if="showAI" @click.self="showAI = false">
+    <div class="modal">
+      <h3>⚙ AI 设置（可选）</h3>
+      <p class="modal-tip">
+        不配置也能用：本地规则完成考点/题目提取，图片题用本地 OCR。<br>
+        配置任意 OpenAI 兼容接口后：✨AI 总结/提炼导图、✨AI 提取考点与题目、📷图片题自动生成
+        MD 题面 + 解题方式 + 知识点归类（需多模态模型）。相关内容会发送到该接口，请注意隐私。
+      </p>
+      <label>接口地址 Base URL<input v-model.trim="aiForm.baseUrl" placeholder="https://api.example.com/v1"></label>
+      <label>API Key<input v-model.trim="aiForm.apiKey" type="password" placeholder="sk-..."></label>
+      <label>模型名称<input v-model.trim="aiForm.model" placeholder="gpt-4o-mini / glm-4-flash …"></label>
+      <label>视觉模型（可选，图片题用；纯 OCR 模型如 GLM-OCR 只生成题面）
+        <input v-model.trim="aiForm.visionModel" placeholder="留空则用上面的模型；本地部署如 http://localhost:8000/v1 + zai-org/GLM-OCR">
+      </label>
+      <hr class="modal-hr">
+      <label class="push-check"><input type="checkbox" v-model="settings.autoAIExtract"> 导入课件后自动用 AI 提取考点与题目（需已配置 AI；失败自动保留本地规则结果）</label>
+      <label>常用服务商快捷填入
+        <select @change="applyPreset($event.target.value); $event.target.value = ''">
+          <option value="">—— 选择后自动填接口地址与模型 ——</option>
+          <option value="zhipu">智谱 GLM（open.bigmodel.cn，glm-4-flash 免费）</option>
+          <option value="zhipuCoding">智谱 GLM Coding Plan（glm-5.3-flash）</option>
+          <option value="deepseek">DeepSeek（api.deepseek.com）</option>
+          <option value="moonshot">月之暗面 Kimi</option>
+          <option value="qwen">阿里通义千问</option>
+          <option value="ollama">本地/局域网 Ollama（192.168.3.5:11434）</option>
+        </select>
+      </label>
+      <p class="modal-tip"><b>📚 Classinfo Board 对接</b>（🚀 推送到 Board 用）：填 Board 的学号与应用密码
+        （在 Board 设置过应用密码；密码仅保存在本机浏览器）。</p>
+      <label>Board 学号<input v-model.trim="aiForm.boardXh" placeholder="如 213212345"></label>
+      <label>Board 应用密码<input v-model.trim="aiForm.boardPassword" type="password" placeholder="Board 里设置的应用密码"></label>
+      <label>Board 网页地址（单点登录用）
+        <input v-model.trim="aiForm.boardWebOrigin" placeholder="默认 http://10.201.163.159:5173；换地址访问 Board 时才需修改"></label>
+      <div class="modal-btns">
+        <button class="btn" @click="showAI = false">取消</button>
+        <button class="btn primary" @click="saveAI">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图片预览 -->
+  <div class="mask" v-if="previewImage" @click.self="previewImage = null">
+    <img class="preview-img" :src="previewImage" @click="previewImage = null">
+  </div>
+
+  <!-- 推送到 Board 对话框 -->
+  <div class="mask" v-if="showBoardPush" @click.self="showBoardPush = false">
+    <div class="modal">
+      <h3>🚀 推送到 Classinfo Board</h3>
+      <p class="modal-tip">
+        把本课程的考点清单与题目推送为 Board 里的<b>个人作业</b>（状态：待完成）。
+        重复推送只会更新同一批条目，不会产生重复；推送内容进入你自己的账号，不影响班级共享板。
+      </p>
+      <div v-if="boardErr" class="push-err">⚠️ {{ boardErr }}</div>
+      <template v-if="boardReady">
+        <label>目标 Board 课程
+          <select v-model="boardTarget">
+            <option disabled value="">选择课程…</option>
+            <option v-for="c in boardCourses" :key="c.id" :value="c.id">
+              {{ c.name }}{{ c.teacher ? '（' + c.teacher + '）' : '' }}{{ c.semester ? ' · ' + c.semester : '' }}
+            </option>
+          </select>
+        </label>
+        <label class="push-check"><input type="checkbox" v-model="boardPushKP"> 📐 考点清单（{{ pushPoints.length }} 条）</label>
+        <label class="push-check"><input type="checkbox" v-model="boardPushQ"> ✏️ 题目（{{ pushQuestions.length }} 道，含解题方式）</label>
+        <div class="modal-btns">
+          <button class="btn" @click="showBoardPush = false">取消</button>
+          <button class="btn primary" :disabled="!boardTarget || boardPushing || (!boardPushKP && !boardPushQ)"
+                  @click="confirmBoardPush">{{ boardPushing ? '推送中…' : '🚀 推送' }}</button>
+        </div>
+      </template>
+      <div v-else-if="boardLoading" class="kp-empty">连接 Board 中…</div>
+    </div>
+  </div>
+
+  <!-- Board 附件拉取对话框 -->
+  <div class="mask" v-if="showBoardFiles" @click.self="showBoardFiles = false">
+    <div class="modal wide-modal">
+      <h3>☁️ Board 共享附件</h3>
+      <p class="modal-tip">选择 Board 课程共享板里的课件 PPT，直接拉取到本地并自动分析（导图 / 考点 / 题目）。</p>
+      <div v-if="boardErr" class="push-err">⚠️ {{ boardErr }}</div>
+      <template v-if="boardReady">
+        <label>课程
+          <select v-model="boardFileCourse" @change="loadBoardFileList">
+            <option disabled value="">选择课程…</option>
+            <option v-for="b in boardFileBoards" :key="b.key" :value="b.key">
+              {{ b.label }}（{{ b.files.length }} 个附件{{ b.from ? ' · 来自 ' + b.from : '' }}）
+            </option>
+          </select>
+        </label>
+        <div class="board-file-list">
+          <div v-if="!boardFileCourse" class="kp-empty">先选择一门课程</div>
+          <div v-else-if="!currentBoardFiles.length" class="kp-empty">该共享板还没有附件</div>
+          <div v-for="f in currentBoardFiles" :key="f.id" class="board-file-row">
+            <span class="bf-icon">{{ /\.pptx$/i.test(f.name) ? '📊' : '📎' }}</span>
+            <span class="bf-name" :title="f.name">{{ f.name }}</span>
+            <span class="bf-size">{{ (f.size / 1048576).toFixed(1) }} MB</span>
+            <button v-if="/\.pptx$/i.test(f.name)" class="btn sm primary" :disabled="pullingId === f.id"
+                    @click="pullBoardFile(f)">{{ pullingId === f.id ? '分析中…' : '⬇ 拉取分析' }}</button>
+            <span v-else class="tag">非 PPT</span>
+          </div>
+        </div>
+        <div class="modal-btns">
+          <button class="btn" @click="showBoardFiles = false">关闭</button>
+        </div>
+      </template>
+      <div v-else-if="boardLoading" class="kp-empty">连接 Board 中…</div>
+    </div>
+  </div>
+
+  <!-- 投递课件到 Board 附件对话框 -->
+  <div class="mask" v-if="showBoardSubmit" @click.self="showBoardSubmit = false">
+    <div class="modal">
+      <h3>📨 投递课件到 Board 附件</h3>
+      <p class="modal-tip">
+        把课件 PPT <b>原件</b>投递到 Board 课程共享附件：负责人直接发布，成员投稿后由负责人审核。
+        全班同学都能在「班级同步」里下载。
+      </p>
+      <div v-if="boardErr" class="push-err">⚠️ {{ boardErr }}</div>
+      <template v-if="boardReady">
+        <p class="push-file-line">📄 {{ submitDeckName }}</p>
+        <label>目标 Board 课程
+          <select v-model="boardTarget">
+            <option disabled value="">选择课程…</option>
+            <option v-for="c in boardCourses" :key="c.id" :value="c.id">
+              {{ c.name }}{{ c.teacher ? '（' + c.teacher + '）' : '' }}{{ c.semester ? ' · ' + c.semester : '' }}
+            </option>
+          </select>
+        </label>
+        <template v-if="!submitHasFile">
+          <p class="push-err">这份作业是在此功能上线前导入的，本地没保存 PPT 原件，请重新选择一次文件：</p>
+          <label>选择 PPT 文件<input type="file" accept=".pptx" @change="onSubmitFilePick"></label>
+        </template>
+        <div class="modal-btns">
+          <button class="btn" @click="showBoardSubmit = false">取消</button>
+          <button class="btn primary" :disabled="!boardTarget || boardPushing || (!submitHasFile && !submitPickedFile)"
+                  @click="confirmBoardSubmit">{{ boardPushing ? '投递中…' : '📨 投递' }}</button>
+        </div>
+      </template>
+      <div v-else-if="boardLoading" class="kp-empty">连接 Board 中…</div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <transition name="fade">
+    <div v-if="toast" class="toast" :class="toast.type">{{ toast.msg }}</div>
+  </transition>
+</div>
+
+<!-- 启动自愈：Vue 4 秒内未挂载（脚本失败/旧缓存页面）时，
+     先静默地用绕过缓存的地址自动重载一次；再次失败才显示温和的修复入口 -->
+<div id="boot-watchdog" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px;font:13px/1.7 'Microsoft YaHei',sans-serif;color:#1e293b;box-shadow:0 8px 28px rgba(15,23,42,.18);text-align:center">
+  🐢 页面加载似乎被旧缓存卡住了
+  <button id="boot-fix" style="margin-left:10px;border:none;background:#4263eb;color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit">🔄 一键修复</button>
+</div>
+<script>
+(function () {
+  var KEY = 'clh-boot-retry';
+  function hardReload() {
+    try { sessionStorage.setItem(KEY, '1'); } catch (e) {}
+    location.replace(location.origin + location.pathname + '?boot=' + Date.now());
+  }
+  setTimeout(function () {
+    var app = document.querySelector('#app');
+    if (app && app.__vue_app__) {           // 启动成功：清除重试标记
+      try { sessionStorage.removeItem(KEY); } catch (e) {}
+      return;
+    }
+    var retried = false;
+    try { retried = sessionStorage.getItem(KEY) === '1'; } catch (e) {}
+    if (!retried) { hardReload(); return; } // 第一次失败：静默自愈
+    var box = document.getElementById('boot-watchdog');
+    box.style.display = 'block';            // 连续失败：给出一键修复
+    document.getElementById('boot-fix').onclick = function () {
+      try { sessionStorage.removeItem(KEY); } catch (e) {}
+      hardReload();
+    };
+  }, 4000);
+})();
+</script>
+
+<script src="lib/jszip.min.js?v=23"></script>
+<script src="lib/vue.global.prod.js?v=23"></script>
+<script src="lib/pdf.min.js?v=23"></script>
+<script src="lib/katex/katex.min.js?v=23"></script>
+<script src="lib/katex/contrib/auto-render.min.js?v=23"></script>
+<script src="assets/store.js?v=23"></script>
+<script src="assets/pptx.js?v=23"></script>
+<script src="assets/pdfdoc.js?v=23"></script>
+<script src="assets/summary.js?v=23"></script>
+<script src="assets/knowledge.js?v=23"></script>
+<script src="assets/ocr.js?v=23"></script>
+<script src="assets/board.js?v=23"></script>
+<script>window.__preMount = (document.querySelector("#app") || {innerHTML:{length:0}}).innerHTML.length;</script>
+<script src="assets/app.js?v=23"></script>
+</body>
+</html>

@@ -1,14 +1,13 @@
-/* Electron 桌面端主进程：课表板外壳 + 三工具（QQ Reader 消息 / CLH 课件助手 / 悬浮时钟）
+/* Electron 桌面端主进程：课表板外壳 + QQ Reader 消息服务 + 悬浮时钟 + 托盘
  *
  * 与 APK 同思路：主窗口加载板子服务器（远端），前端改动部署即生效、无需重发包。
  * 配置（gitignored，不入库）：.desktop-server-url（http://<域名或IP>[:端口]）、
- * .desktop-qqreader-path（QQ Reader 目录）、.desktop-clh-path（CLH ppt2mindmap 目录）。
- * 打包版从 exe 同目录（PORTABLE_EXECUTABLE_DIR）读，开发版从仓库根读。
+ * .desktop-qqreader-path（QQ Reader 目录）。打包版从 exe 同目录（PORTABLE_EXECUTABLE_DIR）
+ * 读，开发版从仓库根读，最后回落应用数据目录（首次运行引导写入）。
  *
- * 本地服务均为「探活复用、缺失拉起、退出不杀」：
- *  - QQ Reader server.mjs（127.0.0.1:3210 只读消息，三源）
- *  - CLH server.mjs（127.0.0.1:8777，BOARD_ORIGIN 指向板子）
+ * 本地服务「探活复用、缺失拉起、退出不杀」：QQ Reader server.mjs（127.0.0.1:3210 只读消息）。
  * 悬浮时钟 = 透明置顶无边框小窗（desktop/clock/index.html），托盘常驻。
+ * 课件助手（CLH）已并入板子页面 /clh/，不再依赖本地服务与独立窗口。
  */
 import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, globalShortcut, powerMonitor, session, nativeImage, screen, net } from 'electron'
 import { readFileSync, writeFile, rename, appendFileSync } from 'node:fs'
@@ -19,8 +18,7 @@ import path from 'node:path'
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(DIR, '..')
 const QQ_BASE = 'http://127.0.0.1:3210'
-const CLH_BASE = 'http://127.0.0.1:8777'
-const PARTITION = 'persist:classinfo' // 主窗/CLH 窗共用：同源 localStorage（登录态）+ SSO iframe 通道
+const PARTITION = 'persist:classinfo' // 登录态持久化（独立于浏览器）
 
 // 配置读取：打包后优先 exe 所在目录（portable 运行时给 PORTABLE_EXECUTABLE_DIR），
 // 其次仓库根（开发），最后应用数据目录（首次运行引导写入）
@@ -87,13 +85,9 @@ ipcMain.handle('config:save', (_e, payload) => {
   }
   try {
     const ud = app.getPath('userData')
-    // 两个可选路径：留空 = 对应功能停用（侧栏群消息/课件助手入口随之隐藏）
-    for (const [file, v] of [
-      ['.desktop-qqreader-path', String(p.qqPath || '').trim()],
-      ['.desktop-clh-path', String(p.clhPath || '').trim()]
-    ]) {
-      if (v) writeFile(path.join(ud, file), v + '\n', () => {})
-    }
+    // 可选路径：留空 = 对应功能停用（侧栏「群消息」入口随之隐藏）
+    const qq = String(p.qqPath || '').trim()
+    if (qq) writeFile(path.join(ud, '.desktop-qqreader-path'), qq + '\n', () => {})
     writeFile(path.join(ud, '.desktop-server-url'), u + '\n', () => {
       app.relaunch()
       app.exit(0)
@@ -105,14 +99,12 @@ ipcMain.handle('config:save', (_e, payload) => {
 })
 
 function main() {
-  // ---------- 本地服务（QQ Reader / CLH）：探活复用、缺失拉起、退出不杀 ----------
+  // ---------- 本地服务（QQ Reader）：探活复用、缺失拉起、退出不杀 ----------
+  // （课件助手已并入板子页面 /clh/，不再依赖本地服务）
   const qqPath = readConfig('.desktop-qqreader-path')
-  const clhPath = readConfig('.desktop-clh-path')
   const qq = { available: false, reason: 'starting' }
-  const clh = { available: false, reason: 'starting' }
-  let qqReadyResolve, clhReadyResolve
+  let qqReadyResolve
   const qqReadyPromise = new Promise(r => { qqReadyResolve = r })
-  const clhReadyPromise = new Promise(r => { clhReadyResolve = r })
 
   async function probe(url, timeoutMs = 800) {
     try {
@@ -150,9 +142,7 @@ function main() {
   }
 
   const servicesTask = Promise.all([
-    ensureLocalService('qq-reader', qq, QQ_BASE, '/api/stats', qqPath, {}, qqReadyResolve),
-    // CLH：BOARD_ORIGIN 指向板子，其 /board-api、令牌校验、云同步全部走线上
-    ensureLocalService('clh', clh, CLH_BASE, '/', clhPath, { BOARD_ORIGIN: serverUrl }, clhReadyResolve)
+    ensureLocalService('qq-reader', qq, QQ_BASE, '/api/stats', qqPath, {}, qqReadyResolve)
   ])
 
   // ---------- IPC：QQ Reader 只读桥 ----------
@@ -177,21 +167,8 @@ function main() {
   })
 
   // ---------- IPC：工具窗口 ----------
-  async function openClh() {
-    await clhReadyPromise
-    if (!clh.available) {
-      const hint = clh.reason === 'unconfigured'
-        ? '未配置课件助手路径：在桌面端 exe 同目录放置 .desktop-clh-path（内容一行：CLH 的 ppt2mindmap 目录）'
-        : '课件助手服务不可用（127.0.0.1:8777）：确认 CLH 的 server.mjs 可运行（Node ≥ 18）且 .desktop-clh-path 指向其目录'
-      dialog.showMessageBox({ type: 'info', title: '课件助手', message: hint })
-      return { ok: false, error: hint }
-    }
-    showClh()
-    return { ok: true }
-  }
   ipcMain.handle('tool:open', async (_e, name) => {
     if (name === 'clock') { toggleClock(); return { ok: true } }
-    if (name === 'clh') return openClh()
     return { ok: false, error: '未知工具' }
   })
 
@@ -241,7 +218,6 @@ function main() {
 
   // ---------- 窗口 ----------
   let mainWin = null
-  let clhWin = null
   let clockWin = null
   let tray = null
   let clockClickThrough = false
@@ -290,51 +266,6 @@ function main() {
     if (!mainWin || mainWin.isDestroyed()) { createMainWindow(); return }
     mainWin.show()
     mainWin.focus()
-  }
-
-  function createClhWindow() {
-    clhWin = new BrowserWindow({
-      width: 1280,
-      height: 820,
-      title: '课件助手 · Class Learning Helper',
-      autoHideMenuBar: true,
-      backgroundColor: '#0f1420',
-      webPreferences: {
-        partition: PARTITION, // 与主窗同分区：CLH 的 SSO iframe 能读到板子登录态
-        contextIsolation: true,
-        nodeIntegration: false,
-        spellcheck: false
-      }
-    })
-    clhWin.setMenuBarVisibility(false)
-    attachCommon(clhWin)
-    // 白屏自愈：主框架加载失败或内容几乎为空（服务瞬时不可用/渲染中断）时自动重载，最多两次
-    let clhRetries = 0
-    const reloadClh = () => {
-      if (clhRetries >= 2 || !clhWin || clhWin.isDestroyed()) return
-      clhRetries++
-      setTimeout(() => { if (clhWin && !clhWin.isDestroyed()) clhWin.loadURL(CLH_BASE).catch(() => {}) }, 1500)
-    }
-    clhWin.webContents.on('did-fail-load', (_e, _code, _desc, _url, isMain) => {
-      if (isMain) reloadClh()
-    })
-    clhWin.webContents.on('did-finish-load', async () => {
-      try {
-        const len = await clhWin.webContents.executeJavaScript('document.body ? document.body.innerHTML.length : 0', true)
-        if (len >= 500) clhRetries = 0 // 真正加载成功后重置重试计数
-        else reloadClh()
-      } catch { /* 忽略 */ }
-    })
-    clhWin.on('close', e => {
-      if (!quitting) { e.preventDefault(); clhWin.hide() }
-    })
-    clhWin.loadURL(CLH_BASE)
-  }
-
-  function showClh() {
-    if (!clhWin || clhWin.isDestroyed()) { createClhWindow(); return }
-    clhWin.show()
-    clhWin.focus()
   }
 
   const clockPosFile = () => path.join(app.getPath('userData'), 'clock-pos.json')
@@ -397,7 +328,6 @@ function main() {
     if (!tray) return
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: '显示课表板', click: showMainWindow },
-      { label: '🎓 课件助手（CLH）', click: openClh },
       { label: '⏱ 悬浮时钟', click: toggleClock },
       { type: 'separator' },
       { label: '时钟穿透锁定 (Ctrl+Alt+L)', type: 'checkbox', checked: clockClickThrough, click: item => { toggleClickThrough(item.checked) } },
@@ -433,7 +363,7 @@ function main() {
     createMainWindow()
     createTray()
     registerShortcuts()
-    // 下载处理挂在共享分区 session 上（主窗/CLH 窗都可能触发）
+    // 下载处理挂在共享分区 session 上（主窗触发，如日程表 .ics 导出）
     session.fromPartition(PARTITION).on('will-download', (_e, item) => {
       const saveTo = dialog.showSaveDialogSync({ defaultPath: item.getFilename() })
       if (!saveTo) { item.cancel(); return }

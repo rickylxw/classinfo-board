@@ -17,6 +17,7 @@ import PersonalTodos from './components/PersonalTodos.vue'
 import Archive from './components/Archive.vue'
 import ScheduleView from './components/ScheduleView.vue'
 import MessageReader from './components/MessageReader.vue'
+import ClhView from './components/ClhView.vue'
 import Toasts from './components/Toasts.vue'
 
 import { version } from '../package.json'
@@ -134,6 +135,8 @@ function openSubmitAssignmentDialog(courseKey) {
     <SideBar @new-course="openCourseDialog()" @pull-timetable="ui.dialog = 'timetable'" />    <main class="main">
       <!-- 桌面端专属：群消息阅读器（QQ/微信/数智东南），满高双栏、不走 main-inner 栅格 -->
       <MessageReader v-if="store.view.type === 'messages'" />
+      <!-- 课件助手：同源 /clh/ 静态目录，浏览器与桌面端同一页面 -->
+      <ClhView v-else-if="store.view.type === 'clh'" />
       <div v-else class="main-inner">
         <Dashboard
           v-if="store.view.type === 'overview'"

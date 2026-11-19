@@ -75,6 +75,13 @@ const visibleCount = computed(() => store.courses.filter(matchCourse).length)
       @click="nav({ type: 'messages', id: null, q: '' })">
       <span>💬</span><span class="nav-name">群消息</span>
     </button>
+    <!-- 课件助手：已并入本站 /clh/，浏览器与桌面端都可用 -->
+    <button
+      class="nav-item"
+      :class="{ active: store.view.type === 'clh' }"
+      @click="nav({ type: 'clh', id: null, q: '' })">
+      <span>🎓</span><span class="nav-name">课件助手</span>
+    </button>
 
     <div class="side-title" style="margin-top:10px;">
       <span>我的课程</span><span>{{ visibleCount }}</span>
