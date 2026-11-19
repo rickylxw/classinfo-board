@@ -69,6 +69,7 @@ function main() {
   async function probe(url, timeoutMs = 800) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+      await res.arrayBuffer() // 必须消费 body：不读会让 undici 解析器挂起，连接关闭时断言崩溃（ERR_ASSERTION assert(this.paused)）
       return res.ok
     } catch { return false }
   }
