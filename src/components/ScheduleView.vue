@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import {
   store, courseById, PERSONAL_ID, PERSONAL_COURSE,
-  toggleAssignment, toggleSynced
+  toggleAssignment, toggleSynced, toast
 } from '../store'
 import { ddlBadge, fmtDT, courseKeyOf } from '../utils'
 import { session } from '../api'
@@ -10,6 +10,7 @@ import {
   parseCourseTimes, parseWeeks, mondayOf, addDays, fmtMD, fmtDate,
   getSemStartInput, setSemStart, weekNumberOf
 } from '../schedule'
+import { buildSemesterICS } from '../ics'
 
 const PERIODS = Array.from({ length: 13 }, (_, i) => i + 1)
 const WD_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -37,6 +38,19 @@ const rangeText = computed(() => `${fmtMD(days.value[0])} ~ ${fmtMD(days.value[6
 
 function go(offset) { weekOffset.value += offset }
 function goCurrent() { weekOffset.value = 0 }
+
+/* ---- 导出日历 .ics（单双周逐周展开，可直接导入系统日历） ---- */
+const canExportIcs = computed(() => semSet.value && store.courses.some(c => parseCourseTimes(c).length))
+function exportIcs() {
+  const text = buildSemesterICS(store.courses, semStartInput.value)
+  if (!text) { toast('没有可导出的上课时间（先设学期起点、确认课程备注含上课时间）', 'error'); return }
+  const blob = new Blob([text], { type: 'text/calendar;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `东南课表-${semStartInput.value}.ics`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+}
 function onSemStartChange(e) {
   semStartInput.value = e.target.value
   setSemStart(e.target.value)
@@ -132,6 +146,7 @@ const todayCol = computed(() => {
           <span v-else-if="!semSet" class="badge b-none" title="设置「学期第一周周一」后，课表会按周次过滤、并显示教学周">未设学期起点</span>
         </div>
         <div class="sch-sem">
+          <button v-if="canExportIcs" class="btn sm" title="按单双周逐周展开为日历事件，可导入手机/电脑的系统日历" @click="exportIcs">📅 导出日历 .ics</button>
           <label>学期第一周周一</label>
           <input type="date" :value="semStartInput" @change="onSemStartChange">
         </div>
