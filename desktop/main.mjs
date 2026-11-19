@@ -308,6 +308,23 @@ function main() {
     })
     clhWin.setMenuBarVisibility(false)
     attachCommon(clhWin)
+    // 白屏自愈：主框架加载失败或内容几乎为空（服务瞬时不可用/渲染中断）时自动重载，最多两次
+    let clhRetries = 0
+    const reloadClh = () => {
+      if (clhRetries >= 2 || !clhWin || clhWin.isDestroyed()) return
+      clhRetries++
+      setTimeout(() => { if (clhWin && !clhWin.isDestroyed()) clhWin.loadURL(CLH_BASE).catch(() => {}) }, 1500)
+    }
+    clhWin.webContents.on('did-fail-load', (_e, _code, _desc, _url, isMain) => {
+      if (isMain) reloadClh()
+    })
+    clhWin.webContents.on('did-finish-load', async () => {
+      try {
+        const len = await clhWin.webContents.executeJavaScript('document.body ? document.body.innerHTML.length : 0', true)
+        if (len >= 500) clhRetries = 0 // 真正加载成功后重置重试计数
+        else reloadClh()
+      } catch { /* 忽略 */ }
+    })
     clhWin.on('close', e => {
       if (!quitting) { e.preventDefault(); clhWin.hide() }
     })
