@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>课程信息板 · 初始配置</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font: 13px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; color: #1c2434; background: #eef0f5; margin: 0; padding: 20px 22px; }
+  h3 { margin: 0 0 12px; font-size: 15px; }
+  input {
+    width: 100%; padding: 9px 12px; font-size: 13px;
+    border: 1px solid #d3d8e2; border-radius: 8px; outline: none;
+  }
+  input:focus { border-color: #5457e5; }
+  button {
+    margin-top: 14px; width: 100%; padding: 9px;
+    border: none; border-radius: 8px; background: #5457e5; color: #fff;
+    font-size: 13px; cursor: pointer;
+  }
+  button:disabled { opacity: .6; }
+  .err { color: #dc2626; font-size: 12px; min-height: 18px; margin-top: 8px; }
+  .tip { font-size: 11px; color: #6c7688; margin: 10px 0 0; }
+</style>
+</head>
+<body>
+  <h3>📈 课程信息板 · 服务器地址</h3>
+  <input id="url" placeholder="https://class.rickylin.top" spellcheck="false">
+  <div class="err" id="err"></div>
+  <button id="save">保存并启动</button>
+  <p class="tip">地址保存在本机应用数据目录（不入库）；之后也可以在 exe 同目录放置 .desktop-server-url 覆盖。</p>
+<script>
+  const $ = id => document.getElementById(id)
+  $('save').addEventListener('click', async () => {
+    $('save').disabled = true
+    $('err').textContent = ''
+    const r = await window.configApi.save($('url').value)
+    if (!r || !r.ok) {
+      $('err').textContent = r?.error || '保存失败'
+      $('save').disabled = false
+    } // 成功则主进程保存后自动重启进入主界面
+  })
+  $('url').addEventListener('keydown', e => { if (e.key === 'Enter') $('save').click() })
+</script>
+</body>
+</html>

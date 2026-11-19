@@ -10,8 +10,8 @@
  *  - CLH server.mjs（127.0.0.1:8777，BOARD_ORIGIN 指向板子）
  * 悬浮时钟 = 透明置顶无边框小窗（desktop/clock/index.html），托盘常驻。
  */
-import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, globalShortcut, powerMonitor, session, nativeImage, screen } from 'electron'
-import { readFileSync, writeFile, rename, readFile } from 'node:fs'
+import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, globalShortcut, powerMonitor, session, nativeImage, screen, net } from 'electron'
+import { readFileSync, writeFile, rename, appendFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -22,14 +22,15 @@ const QQ_BASE = 'http://127.0.0.1:3210'
 const CLH_BASE = 'http://127.0.0.1:8777'
 const PARTITION = 'persist:classinfo' // 主窗/CLH 窗共用：同源 localStorage（登录态）+ SSO iframe 通道
 
-// 配置读取：打包后优先 exe 所在目录（portable 运行时给 PORTABLE_EXECUTABLE_DIR），开发时用仓库根
+// 配置读取：打包后优先 exe 所在目录（portable 运行时给 PORTABLE_EXECUTABLE_DIR），
+// 其次仓库根（开发），最后应用数据目录（首次运行引导写入）
 function configDir() {
   if (process.env.PORTABLE_EXECUTABLE_DIR) return process.env.PORTABLE_EXECUTABLE_DIR
   if (app.isPackaged) return path.dirname(app.getPath('exe'))
   return ROOT
 }
 function readConfig(name) {
-  for (const dir of [configDir(), ROOT]) {
+  for (const dir of [configDir(), ROOT, app.getPath('userData')]) {
     try {
       const v = readFileSync(path.join(dir, name), 'utf8').trim()
       if (v) return v
@@ -41,20 +42,58 @@ function readConfig(name) {
 const serverUrl = readConfig('.desktop-server-url')
 const configValid = /^https?:\/\/[^\s/]+(:\d+)?$/.test(serverUrl)
 
+// 主进程兜底：未捕获异常记日志并继续运行，不弹 Error 对话框、不退出
+// （此前 undici 的 assert(this.paused) 崩溃会直接杀掉打包版——网络栈已换 net.fetch，这里再加保险）
+function logMainError(kind, e) {
+  try {
+    appendFileSync(path.join(app.getPath('userData'), 'main-errors.log'),
+      `${new Date().toISOString()} [${kind}] ${e?.stack || e}\n`)
+  } catch { /* 日志失败忽略 */ }
+}
+process.on('uncaughtException', e => logMainError('uncaught', e))
+process.on('unhandledRejection', e => logMainError('rejection', e))
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else if (!configValid) {
-  app.whenReady().then(() => {
-    dialog.showErrorBox(
-      '课程信息板 · 缺少配置',
-      '缺少 .desktop-server-url（内容一行：http://<板子地址>[:端口]，如 https://class.rickylin.top）。\n' +
-      '该文件不入库，放在桌面端 exe 同目录（或仓库根目录）即可。'
-    )
-    app.quit()
-  })
+  // 首次运行（exe 被放到任意目录、无配置文件）：弹出引导窗口，保存到应用数据目录后自动重启
+  app.whenReady().then(showConfigWindow)
 } else {
   main()
 }
+
+function showConfigWindow() {
+  const win = new BrowserWindow({
+    width: 440,
+    height: 220,
+    resizable: false,
+    title: '课程信息板 · 初始配置',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(DIR, 'config-preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  win.setMenuBarVisibility(false)
+  win.loadFile(path.join(DIR, 'config', 'index.html'))
+}
+
+ipcMain.handle('config:save', (_e, url) => {
+  const u = String(url || '').trim()
+  if (!/^https?:\/\/[^\s/]+(:\d+)?$/.test(u)) {
+    return { ok: false, error: '格式不对：应为 http:// 或 https:// 开头的完整地址（可带端口，不带路径）' }
+  }
+  try {
+    writeFile(path.join(app.getPath('userData'), '.desktop-server-url'), u + '\n', () => {
+      app.relaunch()
+      app.exit(0)
+    })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e?.message || '写入失败' }
+  }
+})
 
 function main() {
   // ---------- 本地服务（QQ Reader / CLH）：探活复用、缺失拉起、退出不杀 ----------
@@ -68,19 +107,25 @@ function main() {
 
   async function probe(url, timeoutMs = 800) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
-      await res.arrayBuffer() // 必须消费 body：不读会让 undici 解析器挂起，连接关闭时断言崩溃（ERR_ASSERTION assert(this.paused)）
+      // net.fetch 走 Electron/Chromium 网络栈：彻底避开 Node undici 的
+      // assert(this.paused) 断言崩溃（探活响应不消费时曾把打包版炸退出）
+      const res = await net.fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+      await res.arrayBuffer()
       return res.ok
     } catch { return false }
   }
 
   // 两服务的 server.mjs 都是 cwd+默认文件名，仅端口/探活路径/额外 env 不同
-  function ensureLocalService(svc, base, probePath, cwd, extraEnv = {}, readyResolve) {
+  function ensureLocalService(name, svc, base, probePath, cwd, extraEnv = {}, readyResolve) {
     return (async () => {
       if (!cwd) { svc.reason = 'unconfigured'; readyResolve(); return }
       if (await probe(base + probePath)) { svc.available = true; svc.reason = ''; readyResolve(); return }
       try {
-        const child = spawn('node', ['server.mjs'], { cwd, windowsHide: true, stdio: 'ignore', env: { ...process.env, ...extraEnv } })
+        const child = spawn('node', ['server.mjs'], { cwd, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, ...extraEnv } })
+        // stderr 落盘（截断式覆盖）：服务起不来/运行报错时有据可查
+        const errLog = path.join(app.getPath('userData'), `${name}-stderr.log`)
+        try { writeFile(errLog, '') } catch { /* 忽略 */ }
+        child.stderr?.on('data', d => { try { appendFileSync(errLog, d) } catch { /* 忽略 */ } })
         child.on('error', () => { if (!svc.available) { svc.reason = 'spawn-failed'; readyResolve() } })
         child.on('exit', () => { if (!svc.available) { svc.reason = 'spawn-failed'; readyResolve() } })
       } catch {
@@ -96,9 +141,9 @@ function main() {
   }
 
   const servicesTask = Promise.all([
-    ensureLocalService(qq, QQ_BASE, '/api/stats', qqPath, {}, qqReadyResolve),
+    ensureLocalService('qq-reader', qq, QQ_BASE, '/api/stats', qqPath, {}, qqReadyResolve),
     // CLH：BOARD_ORIGIN 指向板子，其 /board-api、令牌校验、云同步全部走线上
-    ensureLocalService(clh, CLH_BASE, '/', clhPath, { BOARD_ORIGIN: serverUrl }, clhReadyResolve)
+    ensureLocalService('clh', clh, CLH_BASE, '/', clhPath, { BOARD_ORIGIN: serverUrl }, clhReadyResolve)
   ])
 
   // ---------- IPC：QQ Reader 只读桥 ----------
@@ -112,7 +157,8 @@ function main() {
     if (typeof p !== 'string' || !QQ_API_RE.test(p)) return { ok: false, error: '不支持的端点' }
     if (!qq.available) return { ok: false, error: '消息服务不可用' }
     try {
-      const res = await fetch(QQ_BASE + p, { signal: AbortSignal.timeout(15000) })
+      // 同 probe：走 net.fetch，避开 undici 断言崩溃
+      const res = await net.fetch(QQ_BASE + p, { signal: AbortSignal.timeout(15000) })
       const data = await res.json()
       if (data && data.error) return { ok: false, error: data.error }
       return { ok: true, data }
