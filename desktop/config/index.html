@@ -27,13 +27,24 @@
   <input id="url" placeholder="https://class.rickylin.top" spellcheck="false">
   <div class="err" id="err"></div>
   <button id="save">保存并启动</button>
-  <p class="tip">地址保存在本机应用数据目录（不入库）；之后也可以在 exe 同目录放置 .desktop-server-url 覆盖。</p>
+  <details style="margin-top:12px;">
+    <summary style="font-size:11px;color:#6c7688;cursor:pointer;">可选：本机扩展功能路径（不填则对应功能停用）</summary>
+    <div class="tip" style="margin:8px 0 4px;">QQ Reader 目录（启用「群消息」阅读）</div>
+    <input id="qqPath" placeholder="如 E:\Documents\GitHub\QQ Reader" spellcheck="false">
+    <div class="tip" style="margin:8px 0 4px;">课件助手（CLH）ppt2mindmap 目录</div>
+    <input id="clhPath" placeholder="如 ...\Class Learning Helper\ppt2mindmap" spellcheck="false">
+  </details>
+  <p class="tip">保存到本机应用数据目录（不入库）；之后也可以在 exe 同目录放置同名点文件覆盖。</p>
 <script>
   const $ = id => document.getElementById(id)
   $('save').addEventListener('click', async () => {
     $('save').disabled = true
     $('err').textContent = ''
-    const r = await window.configApi.save($('url').value)
+    const r = await window.configApi.save({
+      serverUrl: $('url').value,
+      qqPath: $('qqPath').value,
+      clhPath: $('clhPath').value
+    })
     if (!r || !r.ok) {
       $('err').textContent = r?.error || '保存失败'
       $('save').disabled = false

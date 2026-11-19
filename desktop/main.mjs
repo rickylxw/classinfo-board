@@ -79,13 +79,22 @@ function showConfigWindow() {
   win.loadFile(path.join(DIR, 'config', 'index.html'))
 }
 
-ipcMain.handle('config:save', (_e, url) => {
-  const u = String(url || '').trim()
+ipcMain.handle('config:save', (_e, payload) => {
+  const p = payload && typeof payload === 'object' ? payload : { serverUrl: payload }
+  const u = String(p.serverUrl || '').trim()
   if (!/^https?:\/\/[^\s/]+(:\d+)?$/.test(u)) {
     return { ok: false, error: '格式不对：应为 http:// 或 https:// 开头的完整地址（可带端口，不带路径）' }
   }
   try {
-    writeFile(path.join(app.getPath('userData'), '.desktop-server-url'), u + '\n', () => {
+    const ud = app.getPath('userData')
+    // 两个可选路径：留空 = 对应功能停用（侧栏群消息/课件助手入口随之隐藏）
+    for (const [file, v] of [
+      ['.desktop-qqreader-path', String(p.qqPath || '').trim()],
+      ['.desktop-clh-path', String(p.clhPath || '').trim()]
+    ]) {
+      if (v) writeFile(path.join(ud, file), v + '\n', () => {})
+    }
+    writeFile(path.join(ud, '.desktop-server-url'), u + '\n', () => {
       app.relaunch()
       app.exit(0)
     })
