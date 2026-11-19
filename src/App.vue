@@ -2,6 +2,7 @@
 import { reactive, ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { store, initStore, initSession } from './store'
 import { session } from './api'
+import { startScheduleFeed } from './desktop'
 import TopBar from './components/TopBar.vue'
 import SideBar from './components/SideBar.vue'
 import Dashboard from './components/Dashboard.vue'
@@ -27,6 +28,7 @@ const booted = ref(false)
 onMounted(async () => {
   await initSession()
   booted.value = true
+  startScheduleFeed() // 桌面端：把「下节课」推给悬浮时钟（非桌面端内部自动跳过）
 })
 const needLogin = computed(() => booted.value && !session.xh)
 

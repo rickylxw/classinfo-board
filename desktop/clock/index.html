@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>悬浮时钟</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; cursor: default; }
+  html, body { background: transparent; overflow: hidden; font: 13px/1.4 "Segoe UI", "Microsoft YaHei", sans-serif; }
+
+  .bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: rgba(15, 19, 30, .86);
+    border: 1px solid rgba(255, 255, 255, .10);
+    border-radius: 14px;
+    color: #dde4f0;
+    -webkit-app-region: drag;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, .35);
+  }
+  .bar button, .bar .chip { -webkit-app-region: no-drag; }
+
+  .cats { display: flex; gap: 4px; }
+  .cat {
+    border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06);
+    color: #b9c2d4; border-radius: 8px; padding: 4px 10px;
+    font-size: 12px; cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .cat:hover { background: rgba(255,255,255,.14); }
+  .cat.on { color: #fff; font-weight: 600; }
+  .cat.on[data-cat="工作"] { background: #2f6fd6; border-color: #2f6fd6; }
+  .cat.on[data-cat="学习"] { background: #1f9d6b; border-color: #1f9d6b; }
+  .cat.on[data-cat="游戏"] { background: #d05a2c; border-color: #d05a2c; }
+
+  .timebox { display: flex; flex-direction: column; align-items: flex-start; min-width: 96px; }
+  .time { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .5px; line-height: 1.1; }
+  .sub { font-size: 10.5px; color: #8b94a8; margin-top: 2px; display: flex; gap: 6px; align-items: center; }
+  .run-dot { width: 7px; height: 7px; border-radius: 50%; background: #3ddc84; animation: blink 1.6s infinite; }
+  .run-dot.off { background: #6b7488; animation: none; }
+  @keyframes blink { 50% { opacity: .25; } }
+
+  .goalbox { display: flex; flex-direction: column; gap: 3px; min-width: 110px; }
+  .goal-meta { font-size: 10.5px; color: #8b94a8; display: flex; justify-content: space-between; gap: 8px; }
+  .goal-track { height: 4px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .goal-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #4f8cff, #2ec27e); width: 0%; transition: width .4s; }
+  .goal-fill.full { background: linear-gradient(90deg, #2ec27e, #f5c518); }
+
+  .next {
+    font-size: 11px; color: #cfe0ff; background: rgba(79, 140, 255, .18);
+    border: 1px solid rgba(79, 140, 255, .35);
+    border-radius: 8px; padding: 3px 9px; white-space: nowrap; max-width: 190px;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* mini 贴边小贴片 */
+  body.mini .bar { padding: 4px 10px; gap: 8px; border-radius: 10px; }
+  body.mini .cats, body.mini .goalbox, body.mini .next, body.mini .switch { display: none; }
+  body.mini .timebox { min-width: 0; flex-direction: row; gap: 6px; align-items: center; }
+  body.mini .time { font-size: 14px; }
+  body.mini .sub { margin: 0; }
+
+  /* 今日/累计 开关 */
+  .switch { display: flex; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; overflow: hidden; }
+  .switch button {
+    border: none; background: transparent; color: #8b94a8;
+    font-size: 11px; padding: 3px 8px; cursor: pointer;
+  }
+  .switch button.on { background: rgba(255,255,255,.16); color: #fff; }
+
+  /* 右键菜单 */
+  .menu {
+    position: fixed; z-index: 30; min-width: 168px;
+    background: rgba(23, 27, 37, .97); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 10px; padding: 5px; color: #dde4f0;
+    box-shadow: 0 8px 28px rgba(0,0,0,.5); display: none;
+    -webkit-app-region: no-drag;
+  }
+  .menu.show { display: block; }
+  .menu .mi {
+    padding: 7px 12px; border-radius: 7px; font-size: 12.5px;
+    cursor: pointer; display: flex; justify-content: space-between; gap: 14px;
+  }
+  .menu .mi:hover { background: rgba(255,255,255,.10); }
+  .menu .mi .state { color: #8b94a8; }
+  .menu .sep { height: 1px; background: rgba(255,255,255,.10); margin: 4px 6px; }
+  .menu input {
+    width: 64px; background: rgba(255,255,255,.08); color: #fff;
+    border: 1px solid rgba(255,255,255,.16); border-radius: 6px;
+    padding: 2px 6px; font-size: 12px; text-align: right;
+  }
+
+  .toast {
+    position: fixed; left: 50%; bottom: -40px; transform: translateX(-50%);
+    background: rgba(23, 27, 37, .96); color: #dde4f0;
+    border: 1px solid rgba(255,255,255,.14); border-radius: 9px;
+    padding: 6px 14px; font-size: 12px; transition: bottom .25s; z-index: 40;
+    white-space: nowrap;
+  }
+  .toast.show { bottom: 42px; }
+</style>
+</head>
+<body>
+  <div class="bar" id="bar">
+    <div class="cats">
+      <button class="cat" data-cat="工作">工作</button>
+      <button class="cat" data-cat="学习">学习</button>
+      <button class="cat" data-cat="游戏">游戏</button>
+    </div>
+    <div class="timebox">
+      <div class="time" id="time">00:00:00</div>
+      <div class="sub">
+        <span class="run-dot off" id="runDot"></span>
+        <span id="subText">今日合计</span>
+      </div>
+    </div>
+    <div class="goalbox" id="goalbox">
+      <div class="goal-meta"><span id="goalLabel">目标</span><span id="goalPct">0%</span></div>
+      <div class="goal-track"><div class="goal-fill" id="goalFill"></div></div>
+    </div>
+    <div class="switch" id="viewSwitch">
+      <button data-view="today" class="on">今日</button>
+      <button data-view="total">累计</button>
+    </div>
+    <div class="next" id="next" style="display:none"></div>
+  </div>
+
+  <div class="menu" id="menu">
+    <div class="mi" data-act="pomodoro">🍅 番茄钟 (25+5)<span class="state" id="pomoState">关</span></div>
+    <div class="mi" data-act="idle">💤 空闲自动暂停<span class="state" id="idleState">开</span></div>
+    <div class="mi" data-act="goals">🎯 每日目标（分钟）<span class="state">工作/学习/游戏</span></div>
+    <div class="mi" data-act="goal-edit" style="display:none; flex-direction: column; gap: 6px;">
+      <label style="font-size:11px;color:#8b94a8;">工作 <input type="number" min="0" id="goal-工作"> 学习 <input type="number" min="0" id="goal-学习"> 游戏 <input type="number" min="0" id="goal-游戏"></label>
+      <button id="goalSave" style="border:none;background:#2f6fd6;color:#fff;border-radius:6px;padding:4px;font-size:12px;cursor:pointer;">保存目标</button>
+    </div>
+    <div class="sep"></div>
+    <div class="mi" data-act="mini">📌 贴边 mini 模式</div>
+    <div class="mi" data-act="clickthrough">🔒 穿透锁定 (Ctrl+Alt+L)</div>
+    <div class="mi" data-act="hide">🙈 隐藏（托盘可找回）</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id)
+  const bridge = window.clockBridge
+  if (!bridge) { document.body.textContent = 'clockBridge 不可用'; return }
+
+  const CATS = ['工作', '学习', '游戏']
+  const POMO_WORK = 25 * 60, POMO_BREAK = 5 * 60, IDLE_AFTER = 300
+
+  const state = {
+    data: null,            // { daily, settings, todos } —— time_data.json 同形
+    settings: null,        // state.data.settings 的引用别名（初始化时挂上）
+    running: null,         // 当前运行分类 | null
+    view: 'today',
+    mini: false,
+    pomoPhase: null,       // 'work' | 'break' | null
+    pomoLeft: 0,
+    nextClass: null,
+    lastFlushDay: null,
+    dirty: false
+  }
+  const todayKey = (d = new Date()) => {
+    const p = n => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  }
+
+  /* ---------- 数据 ---------- */
+  function dayMap() {
+    const k = todayKey()
+    if (state.lastFlushDay && state.lastFlushDay !== k && state.running) {
+      // 跨天：旧一天已按秒落账，新的一天从这里开始累计（分类继续跑）
+    }
+    state.lastFlushDay = k
+    if (!state.data.daily[k]) state.data.daily[k] = { 工作: 0, 学习: 0, 游戏: 0 }
+    const d = state.data.daily[k]
+    for (const c of CATS) if (typeof d[c] !== 'number') d[c] = 0
+    return d
+  }
+  function flush() {
+    if (state.dirty) { bridge.saveData(state.data); state.dirty = false }
+  }
+  function sumRange(filter) {
+    let total = 0
+    for (const v of Object.values(state.data.daily)) {
+      for (const c of CATS) {
+        if (filter && !filter(c)) continue
+        total += v[c] || 0
+      }
+    }
+    return total
+  }
+
+  /* ---------- 计时主循环 ---------- */
+  let lastTick = Date.now()
+  setInterval(() => {
+    if (!state.data || !state.settings) return
+    const now = Date.now()
+    const elapsed = (now - lastTick) / 1000
+    lastTick = now
+    if (state.running) {
+      dayMap()[state.running] += elapsed
+      state.dirty = true
+    }
+    // 番茄钟相位推进
+    if (state.settings.pomodoro && state.pomoPhase) {
+      state.pomoLeft -= elapsed
+      if (state.pomoLeft <= 0) {
+        if (state.pomoPhase === 'work') {
+          state.pomoPhase = 'break'; state.pomoLeft = POMO_BREAK
+          toast('番茄完成！休息 5 分钟 ☕')
+          setRunning(null)
+        } else {
+          state.pomoPhase = 'work'; state.pomoLeft = POMO_WORK
+          toast('休息结束，继续番茄 🍅')
+        }
+      }
+    }
+    render()
+  }, 1000)
+
+  // 周期落盘 + 空闲检测
+  setInterval(flush, 30000)
+  setInterval(async () => {
+    if (!state.settings.idlePause || !state.running || state.pomoPhase === 'break') return
+    try {
+      const idle = await bridge.getIdleSeconds()
+      if (idle >= IDLE_AFTER) {
+        setRunning(null)
+        toast('检测到空闲 5 分钟，已自动暂停')
+        flush()
+      }
+    } catch { /* 忽略 */ }
+  }, 30000)
+  window.addEventListener('beforeunload', flush)
+
+  /* ---------- 运行控制 ---------- */
+  function setRunning(cat) {
+    state.running = cat
+    if (cat) {
+      if (state.settings.pomodoro) { state.pomoPhase = 'work'; state.pomoLeft = POMO_WORK }
+    } else {
+      state.pomoPhase = null; state.pomoLeft = 0
+    }
+    flush()
+    render()
+  }
+  function toggleCat(cat) {
+    if (state.running === cat) setRunning(null)
+    else setRunning(cat)
+  }
+
+  /* ---------- 渲染 ---------- */
+  const fmtHMS = s => {
+    s = Math.floor(s)
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+  }
+  function render() {
+    if (!state.data || !state.settings) return
+    const k = todayKey()
+    const today = state.data.daily[k] || {}
+    const active = state.running
+    // 分类 chips：显示各自今日时长
+    document.querySelectorAll('.cat').forEach(el => {
+      const c = el.dataset.cat
+      el.classList.toggle('on', active === c)
+      el.textContent = `${c} ${fmtShort(today[c] || 0)}`
+    })
+    // 大字：运行中番茄钟显示倒计时，否则当前视图合计
+    const timeEl = $('time')
+    if (active && state.settings.pomodoro && state.pomoPhase) {
+      const s = Math.max(0, Math.floor(state.pomoLeft))
+      timeEl.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+    } else {
+      const sec = state.view === 'today'
+        ? CATS.reduce((a, c) => a + (today[c] || 0), 0)
+        : sumRange()
+      timeEl.textContent = fmtHMS(sec)
+    }
+    $('runDot').className = 'run-dot' + (active ? '' : ' off')
+    $('subText').textContent = active
+      ? (state.pomoPhase === 'break' ? '番茄休息中' : `${active} 进行中`)
+      : (state.view === 'today' ? '今日合计' : '累计合计')
+    // 目标进度：今日「学习+工作」合计对两者目标之和（对齐自律时钟的目标语义）
+    const goals = state.data.settings.goals
+    const goalMin = (goals.工作 || 0) + (goals.学习 || 0)
+    const doneMin = ((today.工作 || 0) + (today.学习 || 0)) / 60
+    const pct = goalMin > 0 ? Math.min(100, Math.round(doneMin / goalMin * 100)) : 0
+    $('goalPct').textContent = pct + '%'
+    $('goalFill').style.width = pct + '%'
+    $('goalFill').className = 'goal-fill' + (pct >= 100 ? ' full' : '')
+    $('goalLabel').textContent = `目标 ${Math.round(goalMin / 60 * 10) / 10}h`
+    // 下节课
+    const nextEl = $('next')
+    if (state.nextClass && state.nextClass.at > Date.now()) {
+      const t = new Date(state.nextClass.at)
+      const hm = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
+      nextEl.style.display = ''
+      nextEl.textContent = `下节课 · ${state.nextClass.name} ${hm}${state.nextClass.room ? ' ' + state.nextClass.room : ''}`
+    } else {
+      nextEl.style.display = 'none'
+    }
+  }
+  function fmtShort(s) {
+    s = Math.floor(s)
+    if (s < 60) return s + 's'
+    if (s < 3600) return Math.floor(s / 60) + 'm'
+    return (Math.floor(s / 3600 * 10) / 10) + 'h'
+  }
+
+  let toastTimer = null
+  function toast(msg) {
+    const el = $('toast')
+    el.textContent = msg
+    el.classList.add('show')
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3000)
+  }
+
+  /* ---------- 交互 ---------- */
+  document.querySelectorAll('.cat').forEach(el => {
+    el.addEventListener('click', () => toggleCat(el.dataset.cat))
+  })
+  document.querySelectorAll('#viewSwitch button').forEach(el => {
+    el.addEventListener('click', () => {
+      state.view = el.dataset.view
+      document.querySelectorAll('#viewSwitch button').forEach(b => b.classList.toggle('on', b === el))
+      render()
+    })
+  })
+
+  // 右键菜单
+  const menu = $('menu')
+  function closeMenu() { menu.classList.remove('show') }
+  document.addEventListener('contextmenu', e => {
+    e.preventDefault()
+    menu.classList.add('show')
+    const mw = menu.offsetWidth, mh = menu.offsetHeight
+    menu.style.left = Math.min(e.clientX, window.innerWidth - mw - 4) + 'px'
+    menu.style.top = Math.min(e.clientY, window.innerHeight - mh - 4) + 'px'
+    $('pomoState').textContent = state.settings.pomodoro ? '开' : '关'
+    $('idleState').textContent = state.settings.idlePause ? '开' : '关'
+  })
+  document.addEventListener('click', e => {
+    if (!menu.contains(e.target)) closeMenu()
+  })
+  menu.addEventListener('click', e => {
+    const mi = e.target.closest('.mi')
+    if (!mi || !mi.dataset.act) return
+    const act = mi.dataset.act
+    if (act === 'pomodoro') {
+      state.settings.pomodoro = !state.settings.pomodoro
+      if (!state.settings.pomodoro) { state.pomoPhase = null; state.pomoLeft = 0 }
+      else if (state.running) { state.pomoPhase = 'work'; state.pomoLeft = POMO_WORK }
+      state.dirty = true; flush()
+    } else if (act === 'idle') {
+      state.settings.idlePause = !state.settings.idlePause
+      state.dirty = true; flush()
+    } else if (act === 'goals') {
+      const ge = menu.querySelector('[data-act="goal-edit"]')
+      const show = ge.style.display === 'none' || !ge.style.display
+      ge.style.display = show ? 'flex' : 'none'
+      if (show) for (const c of CATS) $('goal-' + c).value = state.data.settings.goals[c] || 0
+      return
+    } else if (act === 'mini') {
+      setMini(!state.mini)
+    } else if (act === 'clickthrough') {
+      bridge.setClickThrough(true) // 只能从托盘/Ctrl+Alt+L 解锁，锁定前给提示
+      toast('已穿透锁定：Ctrl+Alt+L 或托盘菜单解锁')
+    } else if (act === 'hide') {
+      flush(); bridge.hide(); return
+    }
+    closeMenu(); render()
+  })
+  $('goalSave').addEventListener('click', () => {
+    for (const c of CATS) {
+      const v = +$('goal-' + c).value
+      state.data.settings.goals[c] = Number.isFinite(v) && v >= 0 ? v : 0
+    }
+    state.dirty = true; flush(); render()
+    toast('目标已保存')
+  })
+
+  /* ---------- mini 贴边 ---------- */
+  async function setMini(on) {
+    state.mini = on
+    document.body.classList.toggle('mini', on)
+    await bridge.setSize(on ? 150 : 420, on ? 30 : 76)
+    if (on) toast('mini 模式：点击贴片恢复')
+  }
+  document.getElementById('bar').addEventListener('click', e => {
+    if (state.mini && !e.target.closest('.menu')) setMini(false)
+  })
+
+  /* ---------- 下节课（板子联动） ---------- */
+  bridge.onSchedule(info => {
+    state.nextClass = info && info.at ? { ...info, at: new Date(info.at).getTime() } : null
+    render()
+  })
+
+  /* ---------- 启动 ---------- */
+  ;(async () => {
+    try {
+      const loaded = await bridge.loadData()
+      if (loaded && typeof loaded === 'object' && loaded.daily) state.data = loaded
+    } catch { /* 用默认 */ }
+    if (!state.data || typeof state.data !== 'object' || !state.data.daily) state.data = { daily: {}, settings: { goals: { 工作: 120, 学习: 240, 游戏: 60 }, pomodoro: false, idlePause: true }, todos: {} }
+    if (!state.data.settings) state.data.settings = { goals: { 工作: 120, 学习: 240, 游戏: 60 }, pomodoro: false, idlePause: true }
+    if (!state.data.settings.goals) state.data.settings.goals = { 工作: 120, 学习: 240, 游戏: 60 }
+    if (!state.data.todos) state.data.todos = {}
+    state.settings = state.data.settings // 引用别名：读写直接落到持久化对象
+    state.lastFlushDay = todayKey()
+    if (!state.data.daily[state.lastFlushDay]) state.data.daily[state.lastFlushDay] = { 工作: 0, 学习: 0, 游戏: 0 }
+    render()
+  })()
+})()
+</script>
+</body>
+</html>

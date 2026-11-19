@@ -22,9 +22,10 @@ Thumbs.db
 # Android 壳：板子服务器地址（内网 IP，不入库）
 .capacitor-server-url
 
-# Electron 桌面端：板子地址 / 本机 QQ Reader 目录（内网与本机路径，不入库）
+# Electron 桌面端：板子地址 / 本机 QQ Reader 与 CLH 目录（内网与本机路径，不入库）
 .desktop-server-url
 .desktop-qqreader-path
+.desktop-clh-path
 
 # 本地产出的 APK / 桌面端打包成品(不入库)
 /*.apk

@@ -38,7 +38,8 @@
     },
     "files": [
       "desktop/**",
-      "public/icons/icon-512.png"
+      "public/icons/icon-512.png",
+      "public/icons/icon-192.png"
     ],
     "win": {
       "target": [
