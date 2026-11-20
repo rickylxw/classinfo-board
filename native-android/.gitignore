@@ -1,0 +1,13 @@
+# Gradle
+.gradle/
+build/
+
+# 本机配置
+local.properties
+
+# 本机快捷脚本(含本机 JDK 路径)
+build.cmd
+
+# IDE
+.idea/
+*.iml
