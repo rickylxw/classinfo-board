@@ -120,3 +120,66 @@ data class FeedbackReq(
     val app: String,
     val device: String
 )
+
+/* ---------- 共享板（负责人管理 + 成员投稿） ---------- */
+
+@Serializable
+data class ShareStatus(
+    val status: String = "none",
+    val isOwner: Boolean = false,
+    val hasOwner: Boolean = false
+)
+
+/** 共享板里的教学群与「班级同步」的群同构，别名以区分用途 */
+typealias BoardGroup = SyncGroup
+
+@Serializable
+data class BoardAssignment(
+    val id: String,
+    val title: String,
+    val deadline: String? = null,
+    val requirement: String? = null
+)
+
+@Serializable
+data class BoardFile(
+    val id: String,
+    val name: String,
+    val size: Long = 0
+)
+
+@Serializable
+data class BoardPendingAssignment(
+    val id: String,
+    val title: String,
+    val deadline: String? = null,
+    val requirement: String? = null,
+    val xh: String? = null
+)
+
+@Serializable
+data class BoardPendingFile(
+    val id: String,
+    val name: String,
+    val size: Long = 0,
+    val xh: String? = null
+)
+
+@Serializable
+data class BoardPendingGroup(
+    val pid: String,
+    val action: String = "add",
+    val gid: String? = null,
+    val group: SyncGroup? = null,
+    val xh: String? = null
+)
+
+@Serializable
+data class BoardData(
+    val assignments: List<BoardAssignment> = emptyList(),
+    val files: List<BoardFile> = emptyList(),
+    val pendingAssignments: List<BoardPendingAssignment> = emptyList(),
+    val pendingFiles: List<BoardPendingFile> = emptyList(),
+    val groups: List<BoardGroup> = emptyList(),
+    val pendingGroups: List<BoardPendingGroup> = emptyList()
+)

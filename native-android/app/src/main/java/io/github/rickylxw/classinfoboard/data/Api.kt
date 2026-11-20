@@ -116,7 +116,97 @@ object Api {
         }
         return json.decodeFromString<OkResp>(exec("/board/assignment/submit", "POST", body.toString())).ok
     }
+
+    /* ---------- 共享板（负责人管理）+ 投稿附件 ---------- */
+
+    suspend fun shareStatus(name: String, teacher: String): ShareStatus =
+        json.decodeFromString<ShareStatus>(exec("/share/status?name=" + enc(name) + "&teacher=" + enc(teacher)))
+
+    suspend fun applyShare(name: String, teacher: String): Boolean =
+        postOk("/share/apply", json.encodeToString(ShareApplyReq.serializer(), ShareApplyReq(name, teacher)))
+
+    suspend fun loadBoard(key: String): BoardData =
+        json.decodeFromString<BoardData>(exec("/board?key=" + enc(key)))
+
+    /** 新增/编辑共享作业；返回后端分配的 id（编辑时回传原 id） */
+    suspend fun boardUpsertAssignment(key: String, id: String?, title: String, deadline: String, requirement: String): String? {
+        val body = buildJsonObject {
+            put("key", key)
+            if (!id.isNullOrBlank()) put("id", id)
+            put("title", title)
+            put("deadline", deadline)
+            put("requirement", requirement)
+        }
+        val r = json.decodeFromString<JsonObject>(exec("/board/assignment/upsert", "POST", body.toString()))
+        return r["id"]?.jsonPrimitive?.content
+    }
+
+    suspend fun boardDeleteAssignment(key: String, id: String): Boolean =
+        postOk("/board/assignment/delete", opBody(key, "id", id))
+
+    suspend fun boardFileDelete(key: String, id: String): Boolean =
+        postOk("/board/file/delete", opBody(key, "id", id))
+
+    suspend fun boardReviewAssignment(key: String, id: String, approve: Boolean): Boolean =
+        postOk("/board/assignment/review", reviewBody(key, id, approve))
+
+    suspend fun boardReviewFile(key: String, id: String, approve: Boolean): Boolean =
+        postOk("/board/file/review", reviewBody(key, id, approve))
+
+    suspend fun boardGroupAdd(key: String, group: SyncGroup): BoardGroup? {
+        val body = buildJsonObject { put("key", key); put("group", json.encodeToJsonElement(SyncGroup.serializer(), group)) }
+        val r = json.decodeFromString<JsonObject>(exec("/board/group/add", "POST", body.toString()))
+        return r["group"]?.jsonObject?.let { json.decodeFromJsonElement(SyncGroup.serializer(), it) }
+    }
+
+    suspend fun boardGroupUpdate(key: String, id: String, group: SyncGroup): Boolean {
+        val body = buildJsonObject {
+            put("key", key); put("id", id)
+            put("group", json.encodeToJsonElement(SyncGroup.serializer(), group))
+        }
+        return json.decodeFromString<OkResp>(exec("/board/group/update", "POST", body.toString())).ok
+    }
+
+    suspend fun boardGroupDelete(key: String, id: String): Boolean =
+        postOk("/board/group/delete", opBody(key, "id", id))
+
+    suspend fun boardGroupReview(key: String, pid: String, approve: Boolean): Boolean =
+        json.decodeFromString<OkResp>(exec("/board/group/review", "POST", buildJsonObject {
+            put("key", key); put("pid", pid); put("approve", approve)
+        }.toString())).ok
+
+    /** 负责人上传共享附件（PUT 原始字节，无 JSON 载荷） */
+    suspend fun boardFileUpload(key: String, name: String, bytes: ByteArray): Boolean =
+        putRawBytes("/board/file/upload?key=" + enc(key) + "&name=" + enc(name), bytes)
+
+    /** 成员投稿附件（PUT 原始字节） */
+    suspend fun boardFileSubmit(key: String, name: String, bytes: ByteArray): Boolean =
+        putRawBytes("/board/file/submit?key=" + enc(key) + "&name=" + enc(name), bytes)
+
+    /* ---------- 内部 ---------- */
+
+    private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+
+    private fun opBody(key: String, field: String, value: String): String =
+        buildJsonObject { put("key", key); put(field, value) }.toString()
+
+    private fun reviewBody(key: String, id: String, approve: Boolean): String =
+        buildJsonObject { put("key", key); put("id", id); put("approve", approve) }.toString()
+
+    private suspend fun postOk(path: String, body: String): Boolean =
+        json.decodeFromString<OkResp>(exec(path, "POST", body)).ok
+
+    private suspend fun putRawBytes(path: String, bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        val b = Request.Builder()
+            .url(base() + "/api" + path)
+            .put(bytes.toRequestBody("application/octet-stream".toMediaType()))
+        Prefs.token?.let { b.header("Authorization", "Bearer $it") }
+        client.newCall(b.build()).execute().use { it.isSuccessful }
+    }
 }
+
+@Serializable
+data class ShareApplyReq(val name: String, val teacher: String)
 
 @Serializable
 data class SemStartReq(val semStart: String)

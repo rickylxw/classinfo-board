@@ -5,7 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,6 +86,33 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
     val key = course?.let { courseKeyOf(it.name, it.teacher) }
     val board = key?.let { Repo.syncMap[it] }
 
+    // 课程负责人状态（申请/审核中/在任），决定详情页是否出现共享板管理卡
+    var shareInfo by remember { mutableStateOf<io.github.rickylxw.classinfoboard.data.ShareStatus?>(null) }
+    val isOwner = shareInfo?.isOwner == true
+    val canPush = Prefs.loggedIn && !Repo.adminMode && !isOwner
+    LaunchedEffect(course?.id, Prefs.loggedIn, Repo.adminMode) {
+        shareInfo = null
+        if (course != null && Prefs.loggedIn && !Repo.adminMode) {
+            shareInfo = runCatching { Api.shareStatus(course.name, course.teacher ?: "") }.getOrNull()
+        }
+    }
+    val filePick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && key != null) scope.launch {
+            try {
+                val name = ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (c.moveToFirst() && i >= 0) c.getString(i) else "附件"
+                } ?: "附件"
+                val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw Exception("读取文件失败")
+                Api.boardFileSubmit(key, name, bytes)
+                Toast.makeText(ctx, "附件投稿已提交，待审核", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(ctx, e.message ?: "投稿失败", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     fun run(op: suspend () -> Unit) {
         if (opBusy) return
         opBusy = true
@@ -130,8 +160,46 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 4.dp))
                             }
+                            // 负责人状态芯片 / 申请入口
+                            if (!Repo.adminMode) {
+                                val si = shareInfo
+                                when {
+                                    si?.isOwner == true ->
+                                        Text("👑 我是课程负责人 · 共享板对同课同学开放",
+                                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(top = 6.dp))
+                                    si?.status == "pending" ->
+                                        Text("⏳ 负责人申请审核中", fontSize = 12.sp,
+                                            color = Color(0xFFB45309), modifier = Modifier.padding(top = 6.dp))
+                                    si?.status == "rejected" ->
+                                        Text("🚫 申请已驳回（不可重新申请）", fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp))
+                                    si != null && !si.hasOwner ->
+                                        TextButton(onClick = {
+                                            scope.launch {
+                                                runCatching { Api.applyShare(course.name, course.teacher ?: "") }
+                                                    .onSuccess {
+                                                        Toast.makeText(ctx, "已提交申请，等待管理员审核", Toast.LENGTH_SHORT).show()
+                                                        shareInfo = runCatching { Api.shareStatus(course.name, course.teacher ?: "") }.getOrNull()
+                                                    }
+                                                    .onFailure { Toast.makeText(ctx, it.message ?: "提交失败", Toast.LENGTH_LONG).show() }
+                                            }
+                                        }, contentPadding = PaddingValues(0.dp)) {
+                                            Text("📨 申请成为课程负责人", fontSize = 13.sp)
+                                        }
+                                    si?.hasOwner == true ->
+                                        Text("👑 课程负责人已设定 · 班级同步开启", fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(top = 6.dp))
+                                }
+                            }
                         }
                     }
+                }
+                // 负责人：共享板管理卡
+                if (isOwner && key != null) {
+                    item { ShareBoardCard(course, key) }
                 }
             }
 
@@ -177,8 +245,37 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
                             onToggleShowReq = { showReqFor = if (showReqFor == sa.id) null else sa.id },
                             onToggleDone = { run { Repo.toggleSynced(sa.id) } },
                             onArchive = { run { Repo.archiveSynced(sa.id) } },
-                            onDelete = null
+                            onDelete = null,
+                            onCopy = {
+                                run {
+                                    Repo.add(sa.title, courseId, sa.deadline, sa.requirement ?: "")
+                                    Toast.makeText(ctx, "已复制为我的作业", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         )
+                    }
+                }
+            }
+
+            // ---------- 共享附件（班级同步） ----------
+            if (!isOwner && board != null && board.files.isNotEmpty() && course != null) {
+                item { Text("📎 共享附件", fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
+                for (bf in board.files) {
+                    item(key = "bf-" + bf.id) {
+                        Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(10.dp)) {
+                            Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("📎 " + bf.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(fmtSize(bf.size) + " · 来自 " + (board.from ?: "班级同步"), fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                TextButton(onClick = {
+                                    if (key != null) downloadBoardFile(ctx, key, bf.id, bf.name)
+                                }) { Text("下载") }
+                            }
+                        }
                     }
                 }
             }
@@ -217,10 +314,18 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
             }
 
             // ---------- 文件 ----------
-            item { Text("📁 文件", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 6.dp)) }
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("📁 文件", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 6.dp))
+                    Spacer(Modifier.weight(1f))
+                    if (canPush && key != null && !isOwner) {
+                        TextButton(onClick = { filePick.launch(arrayOf("*/*")) }, enabled = !opBusy) { Text("📤 投稿附件") }
+                    }
+                }
+            }
             val files = d.files.filter { it.courseId == courseId }
             if (files.isEmpty()) {
-                item { Text("暂无文件（上传/分类管理请用网页端或桌面端）", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item { Text("暂无自己的文件（上传请用网页端或桌面端）", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             for (f in files) {
                 item(key = "f-" + f.id) {
@@ -292,7 +397,7 @@ fun downloadCourseFile(ctx: Context, id: String, name: String) {
     Toast.makeText(ctx, "开始下载：$name（保存到 下载/课程信息板/）", Toast.LENGTH_SHORT).show()
 }
 
-/** 单条作业行（课程详情版：含要求展开、归档/删除菜单；同步项无删除） */
+/** 单条作业行（课程详情版：含要求展开、归档/删除菜单；同步项无删除、可复制为我的作业） */
 @Composable
 private fun DetailAssignmentRow(
     title: String,
@@ -304,7 +409,8 @@ private fun DetailAssignmentRow(
     onToggleShowReq: () -> Unit,
     onToggleDone: () -> Unit,
     onArchive: () -> Unit,
-    onDelete: (() -> Unit)?
+    onDelete: (() -> Unit)?,
+    onCopy: (() -> Unit)? = null
 ) {
     var menu by remember { mutableStateOf(false) }
     val badge = ddlBadge(deadline, done)
@@ -368,6 +474,9 @@ private fun DetailAssignmentRow(
                     Icon(Icons.Filled.MoreVert, contentDescription = "更多")
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    onCopy?.let { copy ->
+                        DropdownMenuItem(text = { Text("📋 复制为我的作业") }, onClick = { menu = false; copy() })
+                    }
                     DropdownMenuItem(text = { Text("📦 归档") }, onClick = { menu = false; onArchive() })
                     if (onDelete != null) {
                         DropdownMenuItem(text = { Text("🗑 删除", color = MaterialTheme.colorScheme.error) },

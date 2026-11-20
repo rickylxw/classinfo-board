@@ -67,6 +67,19 @@ object Repo {
         syncMap = runCatching { Api.sync() }.getOrDefault(syncMap)
     }
 
+    /* ---------- 共享板（负责人）---------- */
+    var boards by mutableStateOf<Map<String, BoardData>>(emptyMap()); private set
+
+    suspend fun loadBoard(key: String) {
+        val b = runCatching { Api.loadBoard(key) }.getOrNull() ?: return
+        boards = boards + (key to b)
+    }
+
+    fun maskXh(xh: String?): String {
+        val s = xh ?: return ""
+        return if (s.length > 5) s.take(3) + "****" + s.takeLast(2) else s
+    }
+
     /* ---------- 作业写入（契约对齐 backend /data/ops 与 src/store.js） ---------- */
 
     fun uid(): String = java.util.UUID.randomUUID().toString().replace("-", "").take(12)

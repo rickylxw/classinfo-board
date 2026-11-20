@@ -56,6 +56,12 @@ fun fmtSize(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
+/** 学号脱敏（对齐 web 端 maskXh：前 3 + **** + 后 2） */
+fun maskXh(xh: String?): String {
+    val s = xh ?: return ""
+    return if (s.length > 5) s.take(3) + "****" + s.takeLast(2) else s
+}
+
 /* 合成待办列表：我的（含个人待办，未归档未完成）+ 班级同步（syncStatus 非 done/archived），按截止升序 */
 fun pendingItems(data: CloudData, sync: Map<String, SyncBoard>): List<PendingItem> {
     val coursesById = data.courses.associateBy { it.id }
