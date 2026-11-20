@@ -28,6 +28,19 @@
             </intent-filter>
         </activity>
 
+        <!-- 下节课桌面小组件（RemoteViews；数据经 WidgetSync 快照 + 闹钟定点刷新） -->
+        <receiver
+            android:name=".NextClassWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="io.github.rickylxw.classinfoboard.WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/next_class_widget_info" />
+        </receiver>
+
         <!-- .ics 导出分享（缓存目录文件经 FileProvider 授读） -->
         <provider
             android:name="androidx.core.content.FileProvider"

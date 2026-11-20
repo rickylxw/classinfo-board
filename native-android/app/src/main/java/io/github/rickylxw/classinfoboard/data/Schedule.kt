@@ -127,3 +127,19 @@ fun weekSlots(courses: List<Course>, week: Int?): List<WeekSlot> {
     }
     return out
 }
+
+/** 今天全部课程（按开始时间排序，含已开始的；下节课/小组件用） */
+fun todayClasses(courses: List<Course>, semStart: String?, now: LocalDateTime): List<ClassInfo> {
+    if (semStart.isNullOrBlank()) return emptyList()
+    val week = weekNumberOf(now.toLocalDate(), semStart) ?: return emptyList()
+    val weekday = now.dayOfWeek.value
+    val out = mutableListOf<ClassInfo>()
+    for (c in courses) {
+        for (t in parseCourseTimes(c)) {
+            if (t.weekday != weekday || !t.weeks.has(week)) continue
+            val hm = CLASS_TIMES[t.start] ?: continue
+            out.add(ClassInfo(c.name, t.room, now.toLocalDate().atTime(java.time.LocalTime.parse(hm.first)), t.start, c.color))
+        }
+    }
+    return out.sortedBy { it.at }
+}

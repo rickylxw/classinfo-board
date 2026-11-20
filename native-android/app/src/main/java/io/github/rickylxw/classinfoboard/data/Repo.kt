@@ -31,6 +31,7 @@ object Repo {
         data = null; syncMap = emptyMap(); semStart = null
         adminMode = false; error = ""; loadedOnce = false
         pendingIds.clear()
+        WidgetSync.saveCurrent()   // 退出登录/会话失效：组件回到未登录态
     }
 
     suspend fun ensureLoaded(force: Boolean = false) {
@@ -54,7 +55,10 @@ object Repo {
                 Prefs.clearSession()
                 reset()
             }
-        } finally { busy = false }
+        } finally {
+            busy = false
+            WidgetSync.saveCurrent()   // 快照落盘 + 刷新桌面小组件
+        }
     }
 
     suspend fun refresh() = ensureLoaded(force = true)
@@ -154,6 +158,7 @@ object Repo {
                 )
             }
             pullSync()
+            WidgetSync.saveCurrent()   // 待办数变化同步到组件
             true
         } catch (e: Exception) {
             error = "云端同步失败：${e.message}（稍后自动重拉）"

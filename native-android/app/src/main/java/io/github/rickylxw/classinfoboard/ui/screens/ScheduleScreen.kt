@@ -74,6 +74,7 @@ import io.github.rickylxw.classinfoboard.data.buildSemesterICS
 import io.github.rickylxw.classinfoboard.data.fmtDeadline
 import io.github.rickylxw.classinfoboard.data.mondayOf
 import io.github.rickylxw.classinfoboard.data.nextClassInfo
+import io.github.rickylxw.classinfoboard.data.parseCourseTimes
 import io.github.rickylxw.classinfoboard.data.weekNumberOf
 import io.github.rickylxw.classinfoboard.data.weekSlots
 import kotlinx.coroutines.launch
@@ -146,11 +147,12 @@ fun ScheduleScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
     // 写系统日历：READ + WRITE 两个运行时权限都要（查日历账户列表要 READ）
     var calDeny by remember { mutableStateOf(false) }
     suspend fun doImport() {
-        val n = CalendarExporter.importTimetable(context, courses, Repo.semStart)
-        calMsg = when {
-            n < 0 -> "写入失败：无法创建或访问日历。可在系统设置→应用→课程信息板→权限里手动开齐「日历」后重试"
-            n == 0 -> "没有可导入的课（先设置学期起点并导入课表）"
-            else -> "已写入系统日历 $n 条事件（重复导入会先清理旧的）"
+        val r = CalendarExporter.importTimetable(context, courses, Repo.semStart)
+        calMsg = r.error ?: run {
+            val base = if (r.written == 0) "没有写入任何事件" else "已写入系统日历 ${r.written} 条事件（重复导入会先清理旧的）"
+            if (r.skipped.isEmpty()) base
+            else base + "\n⚠️ 跳过 ${r.skipped.size} 门课（备注无可识别上课时间）：" +
+                r.skipped.take(3).joinToString("、") + if (r.skipped.size > 3) " 等" else ""
         }
     }
     val calPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -242,6 +244,17 @@ fun ScheduleScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
         if (Repo.semStart.isNullOrBlank()) {
             Text(
                 "⚠️ 未设「学期第一周周一」，课表不按周次过滤——右上角菜单设置",
+                fontSize = 11.sp, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+            )
+        }
+        // 无法解析上课时间的课程（不会显示在网格、也不会导出日历）——口径与网页端一致
+        val unparsed = remember(courses) {
+            courses.count { it.note?.contains("上课时间") == true && parseCourseTimes(it).isEmpty() }
+        }
+        if (unparsed > 0) {
+            Text(
+                "⚠️ 有 $unparsed 门课的备注无法识别上课时间（格式：周X · 第X-Y节 · 周次 · 教室），可在网页端编辑备注或重新拉取课表",
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
             )

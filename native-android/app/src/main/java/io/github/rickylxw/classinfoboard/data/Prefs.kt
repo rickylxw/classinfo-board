@@ -10,9 +10,12 @@ const val DEFAULT_SERVER = "https://class.rickylin.top"
 
 object Prefs {
     private lateinit var sp: SharedPreferences
+    var appCtx: Context? = null
+        private set
 
     fun init(ctx: Context) {
         sp = ctx.getSharedPreferences("classinfo", Context.MODE_PRIVATE)
+        appCtx = ctx.applicationContext
     }
 
     var serverUrl: String
@@ -53,6 +56,12 @@ object Prefs {
         get() = sp.getString("lastApkDownloadTag", null)
         set(v) = if (v.isNullOrBlank()) sp.edit().remove("lastApkDownloadTag").apply()
                  else sp.edit().putString("lastApkDownloadTag", v).apply()
+
+    /** 桌面小组件快照（JSON；App 进程被杀后组件仍可渲染） */
+    var widgetSnapshot: String?
+        get() = sp.getString("widgetSnapshot", null)
+        set(v) = if (v.isNullOrBlank()) sp.edit().remove("widgetSnapshot").apply()
+                 else sp.edit().putString("widgetSnapshot", v).apply()
 
     fun clearSession() {
         token = null

@@ -65,18 +65,27 @@ object CalendarExporter {
         ctx.contentResolver.insert(localCalendarInsertUri(), v)?.lastPathSegment?.toLongOrNull()
     }.getOrNull()
 
+    /** 导出结果：written=写入条数；skipped=未产生事件的课程名；error 非空=失败原因 */
+    data class ImportResult(
+        val written: Int = 0,
+        val skipped: List<String> = emptyList(),
+        val error: String? = null
+    )
+
     /**
      * 全部课程 × 时段 × 活跃周写入系统日历。
-     * @return ≥0 = 写入条数；-1 = 没有可写日历且自建失败（权限或系统限制）
+     * 备注里没有可识别上课时间（或节次超表）的课程会跳过并记入 skipped。
      */
     suspend fun importTimetable(
         ctx: Context,
         courses: List<Course>,
         semStartStr: String?
-    ): Int = withContext(Dispatchers.IO) {
-        if (semStartStr.isNullOrBlank()) return@withContext 0
-        val calId = pickCalendarId(ctx) ?: createLocalCalendar(ctx) ?: return@withContext -1
-        val sem = runCatching { mondayOf(java.time.LocalDate.parse(semStartStr)) }.getOrNull() ?: return@withContext 0
+    ): ImportResult = withContext(Dispatchers.IO) {
+        if (semStartStr.isNullOrBlank()) return@withContext ImportResult(error = "未设置「学期第一周周一」，先在日程页菜单设置")
+        val calId = pickCalendarId(ctx) ?: createLocalCalendar(ctx)
+            ?: return@withContext ImportResult(error = "无法创建或访问日历（检查日历权限）")
+        val sem = runCatching { mondayOf(java.time.LocalDate.parse(semStartStr)) }.getOrNull()
+            ?: return@withContext ImportResult(error = "学期起点格式无效，请重新设置")
         val tz = "Asia/Shanghai"
         val cr = ctx.contentResolver
 
@@ -90,11 +99,14 @@ object CalendarExporter {
         }
 
         var count = 0
+        val skipped = mutableListOf<String>()
         val ops = ArrayList<android.content.ContentProviderOperation>()
         for (c in courses) {
-            for (t in parseCourseTimes(c)) {
-                val stT = CLASS_TIMES[t.start] ?: continue
-                val enT = CLASS_TIMES[t.end] ?: continue
+            val slots = parseCourseTimes(c).filter { CLASS_TIMES[it.start] != null && CLASS_TIMES[it.end] != null }
+            if (slots.isEmpty()) { skipped.add(c.name); continue }
+            for (t in slots) {
+                val stT = CLASS_TIMES[t.start]!!
+                val enT = CLASS_TIMES[t.end]!!
                 for (w in 1..30) {
                     if (!t.weeks.has(w)) continue
                     val day = sectionDate(semStartStr, w, t.weekday)
@@ -123,9 +135,9 @@ object CalendarExporter {
                 }
             }
         }
-        if (ops.isEmpty()) return@withContext 0
+        if (ops.isEmpty()) return@withContext ImportResult(0, skipped, "没有可写入的课表事件")
         val applied = runCatching { cr.applyBatch(CalendarContract.AUTHORITY, ops) }.isSuccess
-        if (!applied) return@withContext -1
-        count
+        if (!applied) return@withContext ImportResult(0, skipped, "写入日历失败（系统拒绝）")
+        ImportResult(count, skipped)
     }
 }
