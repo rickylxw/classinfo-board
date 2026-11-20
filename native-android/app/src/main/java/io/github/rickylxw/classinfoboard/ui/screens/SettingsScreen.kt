@@ -43,13 +43,23 @@ fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit, onFeedback: (Str
     var msg by remember { mutableStateOf("") }
     var updateMsg by remember { mutableStateOf("") }
     var remOn by rememberSaveable { mutableStateOf(Prefs.remindersOn) }
+    var statusOn by rememberSaveable { mutableStateOf(Prefs.statusBarOn) }
+    var permFor by rememberSaveable { mutableStateOf("reminders") }
     val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { granted ->
-        Prefs.remindersOn = granted
-        remOn = granted
-        if (granted) Reminders.scheduleAlarm(ctx) else Reminders.cancelAlarm(ctx)
-        if (!granted) msg = "通知权限未开启，提醒不会弹出（可在系统设置里手动开启）"
+        when {
+            !granted -> msg = "通知权限未开启，提醒/常驻卡片不会显示（可在系统设置里手动开启）"
+            permFor == "reminders" -> {
+                Prefs.remindersOn = true; remOn = true
+                Reminders.scheduleAlarm(ctx)
+                Reminders.checkAsync(ctx)
+            }
+            else -> {
+                Prefs.statusBarOn = true; statusOn = true
+                io.github.rickylxw.classinfoboard.data.StatusBar.updateIfEnabled(ctx)
+            }
+        }
     }
 
     Column(
@@ -140,8 +150,38 @@ fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit, onFeedback: (Str
                             if (!want) {
                                 Prefs.remindersOn = false
                                 remOn = false
-                                Reminders.cancelAlarm(ctx)
                             } else {
+                                permFor = "reminders"
+                                notifPerm.launch(Reminders.PERMISSION)
+                            }
+                        })
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("📌 常驻状态栏卡片", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "音乐播放器式常驻通知：下节课倒计时实时走秒 + 今日待办数，下拉通知栏常驻",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    androidx.compose.material3.Switch(
+                        checked = statusOn,
+                        onCheckedChange = { want ->
+                            if (!want) {
+                                Prefs.statusBarOn = false
+                                statusOn = false
+                                io.github.rickylxw.classinfoboard.data.StatusBar.hide(ctx)
+                            } else {
+                                permFor = "status"
                                 notifPerm.launch(Reminders.PERMISSION)
                             }
                         })

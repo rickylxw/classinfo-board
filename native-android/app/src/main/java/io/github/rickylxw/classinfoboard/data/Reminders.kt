@@ -131,6 +131,9 @@ object Reminders {
 
         prune()
         Prefs.notifiedKeys = notified.toString()
+
+        // 常驻状态栏卡片跟着快照刷新（30 分钟闹钟兜底，倒计时由 Chronometer 自己走）
+        StatusBar.updateIfEnabled(ctx)
     }
 
     /** 主线程触发后台检查（App 启动 / 闹钟） */

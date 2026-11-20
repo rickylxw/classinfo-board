@@ -84,10 +84,13 @@ object WidgetSync {
     }
 
     fun push(ctx: Context) {
-        val mgr = ctx.getSystemService(AppWidgetManager::class.java) ?: return
-        val ids = mgr.getAppWidgetIds(ComponentName(ctx, io.github.rickylxw.classinfoboard.NextClassWidget::class.java))
-        if (ids != null && ids.isNotEmpty()) {
-            for (id in ids) io.github.rickylxw.classinfoboard.NextClassWidget.renderOne(ctx, mgr, id)
+        val mgr = ctx.getSystemService(AppWidgetManager::class.java)
+        if (mgr != null) {
+            val ids = mgr.getAppWidgetIds(ComponentName(ctx, io.github.rickylxw.classinfoboard.NextClassWidget::class.java))
+            if (ids != null && ids.isNotEmpty()) {
+                for (id in ids) io.github.rickylxw.classinfoboard.NextClassWidget.renderOne(ctx, mgr, id)
+            }
         }
+        StatusBar.updateIfEnabled(ctx)   // 常驻状态栏卡片跟随数据变化
     }
 }

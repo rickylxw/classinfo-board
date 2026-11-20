@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- DDL/下节课提醒通知（Android 13+ 运行时请求） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 开机恢复常驻卡片/提醒闹钟/小组件 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:label="@string/app_name"
@@ -49,6 +51,16 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="io.github.rickylxw.classinfoboard.REMINDER_CHECK" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 开机恢复 + 常驻卡片收起动作 -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="io.github.rickylxw.classinfoboard.STATUS_HIDE" />
             </intent-filter>
         </receiver>
 

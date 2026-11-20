@@ -68,6 +68,11 @@ object Prefs {
         get() = sp.getBoolean("remindersOn", true)
         set(v) = sp.edit().putBoolean("remindersOn", v).apply()
 
+    /** 常驻状态栏通知（音乐播放器式卡片，默认关） */
+    var statusBarOn: Boolean
+        get() = sp.getBoolean("statusBarOn", false)
+        set(v) = sp.edit().putBoolean("statusBarOn", v).apply()
+
     /** 已提醒过的 key → 时间戳（JSON map；防重复提醒，7 天前自动清） */
     var notifiedKeys: String
         get() = sp.getString("notifiedKeys", "{}") ?: "{}"
