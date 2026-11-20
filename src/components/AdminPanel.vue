@@ -4,7 +4,8 @@ import {
   adminOverview, adminShares, adminShareDecision, adminShareRevoke, adminShareAppoint,
   adminSubmissions, adminBoards, adminKick, adminDeleteAccount, adminDeleteBoard,
   boardDeleteAssignment, boardDeleteFile, boardUpsertAssignment,
-  reviewBoardGroup
+  reviewBoardGroup,
+  adminFeedback, adminFeedbackUpdate, adminFeedbackDelete
 } from '../api'
 import { toast, onSyncBroadcast } from '../store'
 import BoardReviewRow from './BoardReviewRow.vue'
@@ -14,6 +15,7 @@ const data = ref(null)
 const shares = ref(null)
 const submissions = ref(null)
 const boards = ref(null)
+const feedback = ref(null)
 const error = ref('')
 const loading = ref(false)
 const updatedAt = ref(null)
@@ -24,14 +26,34 @@ const bootstrapped = ref(false)
 const boardQ = ref('')
 const accountQ = ref('')
 const appFilter = ref('all')
+const feedbackStatus = ref('all')
 
 const TABS = [
   { id: 'submissions', label: '📥 投稿审核' },
   { id: 'applications', label: '📨 负责人申请' },
   { id: 'groups', label: '💬 教学群' },
   { id: 'boards', label: '🗂 共享板内容' },
-  { id: 'accounts', label: '👥 账号管理' }
+  { id: 'accounts', label: '👥 账号管理' },
+  { id: 'feedback', label: '📝 用户反馈' }
 ]
+
+/* 用户反馈（原生端故障上报/意见建议） */
+const feedbackOpen = computed(() => feedback.value?.open ?? 0)
+const filteredFeedbacks = computed(() => {
+  const list = feedback.value?.items ?? []
+  return feedbackStatus.value === 'open' ? list.filter(f => f.status === 'open') : list
+})
+async function feedbackMark(f) {
+  await adminFeedbackUpdate(f.id, f.status === 'open' ? 'resolved' : 'open')
+  toast(f.status === 'open' ? '已标记为已处理' : '已重新打开')
+  load()
+}
+async function feedbackDel(f) {
+  if (!confirm('删除这条反馈？')) return
+  await adminFeedbackDelete(f.id)
+  toast('已删除')
+  load()
+}
 
 const APP_FILTERS = [
   { id: 'all', label: '全部' },
@@ -140,6 +162,7 @@ async function load() {
     shares.value = await adminShares()
     submissions.value = await adminSubmissions()
     boards.value = await adminBoards()
+    feedback.value = await adminFeedback()
     updatedAt.value = Date.now()
     if (!bootstrapped.value) {
       bootstrapped.value = true
@@ -276,6 +299,7 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
             <span v-if="t.id === 'submissions' && pendingSubs" class="tab-badge">{{ pendingSubs }}</span>
             <span v-if="t.id === 'applications' && pendingApps" class="tab-badge">{{ pendingApps }}</span>
             <span v-if="t.id === 'groups' && groupStats.pending" class="tab-badge">{{ groupStats.pending }}</span>
+            <span v-if="t.id === 'feedback' && feedbackOpen" class="tab-badge">{{ feedbackOpen }}</span>
           </button>
         </nav>
 
@@ -498,6 +522,32 @@ const fmt = ts => ts ? new Date(ts).toLocaleString('zh-CN', { month: '2-digit', 
               </tbody>
             </table>
           </div>
+        </section>
+
+        <!-- 用户反馈（原生端故障上报/意见建议） -->
+        <section v-if="activeTab === 'feedback'" class="card">
+          <div class="card-head">
+            <h3>📝 用户反馈 <span class="muted">（原生端/网页端的故障上报与意见建议）</span></h3>
+            <div class="admin-filter" style="margin-bottom:0;">
+              <button class="btn sm" :class="{ active: feedbackStatus === 'all' }" @click="feedbackStatus = 'all'">全部 {{ feedback?.items.length || 0 }}</button>
+              <button class="btn sm" :class="{ active: feedbackStatus === 'open' }" @click="feedbackStatus = 'open'">未处理 {{ feedbackOpen }}</button>
+            </div>
+          </div>
+          <div v-if="filteredFeedbacks.length" class="admin-sub-list">
+            <div v-for="f in filteredFeedbacks" :key="f.id" class="admin-board">
+              <div class="admin-board-head">
+                <span class="badge" :class="f.type === 'bug' ? 'b-over' : 'b-done'">{{ f.type === 'bug' ? '🐞 故障' : '💡 建议' }}</span>
+                <span class="badge" :class="f.status === 'open' ? 'b-week' : 'b-none'">{{ f.status === 'open' ? '未处理' : '已处理' }}</span>
+                <span class="muted" style="font-size:12px;">{{ f.xhMasked }} · {{ f.app || '未知端' }}{{ f.device ? ' · ' + f.device : '' }} · {{ fmt(f.at) }}</span>
+                <span style="margin-left:auto;display:flex;gap:6px;">
+                  <button class="btn sm" @click="feedbackMark(f)">{{ f.status === 'open' ? '✅ 标记已处理' : '↩ 重新打开' }}</button>
+                  <button class="btn sm danger-ghost" @click="feedbackDel(f)">🗑 删除</button>
+                </span>
+              </div>
+              <div style="white-space:pre-wrap;font-size:13px;padding:6px 4px;word-break:break-word;">{{ f.content }}</div>
+            </div>
+          </div>
+          <div v-else class="empty"><span class="big">📭</span>暂无反馈</div>
         </section>
       </template>
     </div>

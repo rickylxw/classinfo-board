@@ -104,6 +104,10 @@ export const adminBoards = () => req('/admin/boards')
 export const adminDeleteBoard = key => req('/admin/board/delete', { method: 'POST', body: { key } })
 export const adminKick = xh => req('/admin/kick', { method: 'POST', body: { xh } })
 export const adminDeleteAccount = xh => req('/admin/account/' + xh, { method: 'DELETE' })
+/* 用户反馈（原生/网页/桌面端通用端点） */
+export const adminFeedback = () => req('/admin/feedback')
+export const adminFeedbackUpdate = (id, status) => req('/admin/feedback/update', { method: 'POST', body: { id, status } })
+export const adminFeedbackDelete = id => req('/admin/feedback/delete', { method: 'POST', body: { id } })
 
 export async function fetchCloudFileBlob(id) {
   const res = await fetch('/api/files/' + id, { headers: session.token ? { Authorization: 'Bearer ' + session.token } : {} })
