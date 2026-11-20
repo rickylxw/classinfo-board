@@ -12,6 +12,7 @@ import AssignmentDialog from './components/AssignmentDialog.vue'
 import LinkDialog from './components/LinkDialog.vue'
 import TimetableDialog from './components/TimetableDialog.vue'
 import LoginDialog from './components/LoginDialog.vue'
+import FeedbackDialog from './components/FeedbackDialog.vue'
 import AdminPanel from './components/AdminPanel.vue'
 import PersonalTodos from './components/PersonalTodos.vue'
 import Archive from './components/Archive.vue'
@@ -45,7 +46,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
 // 对话框统一由 App 调度；v-if 挂载保证每次打开都是全新表单状态
 const ui = reactive({
-  dialog: null,            // 'course' | 'assignment' | 'link' | 'timetable' | 'login' | null
+  dialog: null,            // 'course' | 'assignment' | 'link' | 'timetable' | 'login' | 'feedback' | null
   editingCourse: null,
   editingAssignment: null,
   boardKey: null,          // 共享板模式（课程负责人编辑共享代办）
@@ -125,6 +126,7 @@ function openSubmitAssignmentDialog(courseKey) {
       @new-course="openCourseDialog()"
       @pull-timetable="ui.dialog = 'timetable'"
       @login="ui.dialog = 'login'"
+      @feedback="ui.dialog = 'feedback'"
       @toggle-sidebar="store.sidebarOpen = !store.sidebarOpen" />
 
     <!-- 管理员：独立控制台（不加载用户课程数据界面） -->
@@ -196,6 +198,9 @@ function openSubmitAssignmentDialog(courseKey) {
     @close="ui.dialog = null" />
   <LoginDialog
     v-if="ui.dialog === 'login'"
+    @close="ui.dialog = null" />
+  <FeedbackDialog
+    v-if="ui.dialog === 'feedback'"
     @close="ui.dialog = null" />
   <Toasts />
 </template>

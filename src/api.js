@@ -108,6 +108,8 @@ export const adminDeleteAccount = xh => req('/admin/account/' + xh, { method: 'D
 export const adminFeedback = () => req('/admin/feedback')
 export const adminFeedbackUpdate = (id, status) => req('/admin/feedback/update', { method: 'POST', body: { id, status } })
 export const adminFeedbackDelete = id => req('/admin/feedback/delete', { method: 'POST', body: { id } })
+/* 用户反馈/故障上报（学号自动取会话；app/device 用于定位） */
+export const sendFeedback = (type, content, app, device) => req('/feedback', { method: 'POST', body: { type, content, app, device } })
 
 export async function fetchCloudFileBlob(id) {
   const res = await fetch('/api/files/' + id, { headers: session.token ? { Authorization: 'Bearer ' + session.token } : {} })

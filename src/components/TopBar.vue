@@ -5,7 +5,7 @@ import { session } from '../api'
 import { useTheme } from '../theme'
 import { isDesktop, openTool } from '../desktop'
 
-defineEmits(['new-course', 'pull-timetable', 'login', 'toggle-sidebar'])
+defineEmits(['new-course', 'pull-timetable', 'login', 'toggle-sidebar', 'feedback'])
 
 const { theme, toggle } = useTheme()
 const importInput = ref(null)
@@ -54,6 +54,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <div v-if="session.isAdmin" class="top-actions">
       <button class="icon-btn" :title="theme === 'dark' ? '切换浅色' : '切换深色'" @click="toggle">{{ theme === 'dark' ? '☀️' : '🌙' }}</button>
       <span class="chip user-chip">🛡 管理员</span>
+      <button class="btn" title="意见反馈/故障上报" @click="$emit('feedback')">📝 反馈</button>
       <button class="btn" @click="onLogout">退出</button>
     </div>
 
@@ -70,6 +71,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           title="悬浮时钟开关（托盘菜单 / Ctrl+Alt+L 穿透锁定）"
           @click="onClock">⏱</button>
         <button class="icon-btn" :title="theme === 'dark' ? '切换浅色' : '切换深色'" @click="toggle">{{ theme === 'dark' ? '☀️' : '🌙' }}</button>
+        <button class="btn" title="意见反馈/故障上报给开发者" @click="$emit('feedback')">📝 反馈</button>
         <template v-if="session.xh">
           <span class="chip user-chip" title="已登录：ehall 学号">👤 {{ session.xh }}</span>
           <button class="btn" @click="onLogout">退出</button>
