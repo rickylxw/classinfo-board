@@ -856,6 +856,39 @@ http.createServer(async (req, res) => {
         console.log(`[admin] 账号 ${xh} 已删除`)
         return json(res, 200, { ok: true })
       }
+
+      /* 用户反馈查看/处理 */
+      if (p === '/admin/feedback' && req.method === 'GET') {
+        let list = []
+        try { list = JSON.parse(await readFile(path.join(DATA_DIR, 'feedback.json'), 'utf8')) } catch { /* 首次为空 */ }
+        if (!Array.isArray(list)) list = []
+        return json(res, 200, { items: list, open: list.filter(x => x.status === 'open').length })
+      }
+      if (p === '/admin/feedback/update' && req.method === 'POST') {
+        const body = await readJson(req, 65536)
+        const id = safeId(String(body.id || ''))
+        const status = body.status === 'resolved' ? 'resolved' : 'open'
+        const file = path.join(DATA_DIR, 'feedback.json')
+        let list = []
+        try { list = JSON.parse(await readFile(file, 'utf8')) } catch { /* 空 */ }
+        if (!Array.isArray(list)) list = []
+        const hit = list.find(x => x.id === id)
+        if (!hit) return json(res, 404, { error: '反馈不存在' })
+        hit.status = status
+        await writeJsonAtomic(file, list)
+        return json(res, 200, { ok: true })
+      }
+      if (p === '/admin/feedback/delete' && req.method === 'POST') {
+        const body = await readJson(req, 65536)
+        const id = safeId(String(body.id || ''))
+        const file = path.join(DATA_DIR, 'feedback.json')
+        let list = []
+        try { list = JSON.parse(await readFile(file, 'utf8')) } catch { /* 空 */ }
+        if (!Array.isArray(list)) list = []
+        await writeJsonAtomic(file, list.filter(x => x.id !== id))
+        console.log(`[feedback] 管理员删除反馈 ${id}`)
+        return json(res, 200, { ok: true })
+      }
       return json(res, 404, { error: 'not found' })
     }
 
@@ -1355,6 +1388,32 @@ http.createServer(async (req, res) => {
       } catch (e) {
         return json(res, 401, { error: 'ehall Cookie 已失效（' + e.message + '），请退出后重新登录' })
       }
+    }
+
+    /* 用户反馈/故障上报：按会话学号记录（学号脱敏展示），管理台「用户反馈」页签查看处理。
+     * 端点与载荷对原生端/网页端/桌面端通用；限频 1 条/30 秒/账号，全局最多保留 500 条。 */
+    if (p === '/feedback' && req.method === 'POST') {
+      if (rateLimited('feedback:' + s.xh, 1, 30 * 1000)) return json(res, 429, { error: '提交太频繁，请稍后再试' })
+      const body = await readJson(req, 65536)
+      const type = ['bug', 'idea'].includes(body.type) ? body.type : 'idea'
+      const content = clampStr(String(body.content || '').trim(), 2000)
+      if (!content) return json(res, 400, { error: '反馈内容不能为空' })
+      const file = path.join(DATA_DIR, 'feedback.json')
+      let list = []
+      try { list = JSON.parse(await readFile(file, 'utf8')) } catch { /* 首次为空 */ }
+      if (!Array.isArray(list)) list = []
+      list.unshift({
+        id: crypto.randomBytes(8).toString('hex'),
+        xh: s.xh, xhMasked: maskXh(s.xh),
+        type, content,
+        app: clampStr(String(body.app || ''), 120),
+        device: clampStr(String(body.device || ''), 120),
+        at: Date.now(),
+        status: 'open'
+      })
+      await writeJsonAtomic(file, list.slice(0, 500))
+      console.log(`[feedback] ${maskXh(s.xh)} 提交${type === 'bug' ? '故障' : '建议'}反馈`)
+      return json(res, 200, { ok: true })
     }
 
     /* ---------- CLH 课件助手云同步：同源整包 GET/PUT（按学号隔离，存 data/clh/<学号>.json） ----------
