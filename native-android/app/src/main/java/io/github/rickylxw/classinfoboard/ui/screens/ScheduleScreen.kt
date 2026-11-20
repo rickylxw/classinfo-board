@@ -2,6 +2,7 @@ package io.github.rickylxw.classinfoboard.ui.screens
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -142,17 +143,30 @@ fun ScheduleScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
     // 下一节课（顶部提示条）
     val next = remember(courses, Repo.semStart) { nextClassInfo(courses, Repo.semStart) }
 
-    // 写系统日历：先要运行时权限
-    val calPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) Toast.makeText(context, "需要「日历」权限才能写入课表", Toast.LENGTH_LONG).show()
-        else scope.launch {
-            val n = CalendarExporter.importTimetable(context, courses, Repo.semStart)
-            calMsg = when {
-                n < 0 -> "没有可写的日历账户"
-                n == 0 -> "没有可导入的课（先设置学期起点并导入课表）"
-                else -> "已写入系统日历 $n 条事件（重复导入会先清理旧的）"
-            }
+    // 写系统日历：READ + WRITE 两个运行时权限都要（查日历账户列表要 READ）
+    var calDeny by remember { mutableStateOf(false) }
+    suspend fun doImport() {
+        val n = CalendarExporter.importTimetable(context, courses, Repo.semStart)
+        calMsg = when {
+            n < 0 -> "写入失败：无法创建或访问日历。可在系统设置→应用→课程信息板→权限里手动开齐「日历」后重试"
+            n == 0 -> "没有可导入的课（先设置学期起点并导入课表）"
+            else -> "已写入系统日历 $n 条事件（重复导入会先清理旧的）"
         }
+    }
+    val calPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (CalendarExporter.allGranted(result)) {
+            scope.launch { doImport() }
+        } else {
+            calDeny = true
+        }
+    }
+    fun requestCal() {
+        val read = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR)
+        val write = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR)
+        val allGranted = read == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            write == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (allGranted) scope.launch { doImport() }
+        else calPerm.launch(arrayOf(CalendarExporter.PERMISSION_READ, CalendarExporter.PERMISSION_WRITE))
     }
 
     fun shareIcs() {
@@ -180,7 +194,7 @@ fun ScheduleScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("🗓 写入系统日历") }, onClick = {
                         menu = false
-                        calPerm.launch(Manifest.permission.WRITE_CALENDAR)
+                        requestCal()
                     })
                     DropdownMenuItem(text = { Text("学期第一周周一：" + (Repo.semStart ?: "未设")) }, onClick = {
                         menu = false; showSemStart = true
@@ -312,6 +326,26 @@ fun ScheduleScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
             title = { Text("写入系统日历") },
             text = { Text(msg) },
             confirmButton = { TextButton(onClick = { calMsg = null }) { Text("好") } }
+        )
+    }
+
+    if (calDeny) {
+        AlertDialog(
+            onDismissRequest = { calDeny = false },
+            title = { Text("需要日历权限") },
+            text = { Text("把课表写进系统日历需要「日历」读取+写入两项权限（仅用于导入课表事件）。可在系统设置→应用→课程信息板→权限里手动开启。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    calDeny = false
+                    runCatching {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", context.packageName, null))
+                        )
+                    }
+                }) { Text("去设置") }
+            },
+            dismissButton = { TextButton(onClick = { calDeny = false }) { Text("取消") } }
         )
     }
 
