@@ -79,26 +79,55 @@ object Updater {
         if (checking) return if (manual) "正在检查中…" else null
         checking = true
         return try {
-            val text = withContext(Dispatchers.IO) {
-                client.newCall(
-                    Request.Builder().url(RELEASES_API)
-                        .header("Accept", "application/vnd.github+json")
-                        .build()
-                ).execute().use { it.body?.string() ?: "" }
-            }
-            val dto = json.decodeFromString<GhReleaseDto>(text)
+            // 主路：板子中转（同学手机/校园网直连 api.github.com 常被重置，板子域名必然可达）；
+            // 兜底：GitHub 直连（板子后端故障时）
+            val rel = tryBoardRelay() ?: tryGitHubDirect()
+                ?: return if (manual) "检查更新失败：更新源不可达，请稍后再试" else null
             val local = currentVersion(ctx)
-            if (!isNewer(dto.tag_name, local)) return "已是最新版本（v$local）"
-            available = GhRelease(
+            if (!isNewer(rel.tagName, local)) return "已是最新版本（v$local）"
+            available = rel
+            showDialog = manual || Prefs.dismissedUpdateTag != rel.tagName
+            if (manual) "发现新版本 ${rel.tagName.removePrefix("native-v")}" else null
+        } catch (e: Exception) {
+            if (manual) "检查更新失败：${e.message}" else null
+        } finally { checking = false }
+    }
+
+    @Serializable
+    data class RelayDto(
+        val tag: String = "",
+        val apkUrl: String = "",
+        val notes: String? = null,
+        val htmlUrl: String = ""
+    )
+
+    /** 主路：板子后端中转 GitHub API（GET /api/app-update/latest，服务端 10 分钟缓存） */
+    private suspend fun tryBoardRelay(): GhRelease? = withContext(Dispatchers.IO) {
+        runCatching {
+            val text = client.newCall(
+                Request.Builder().url(Prefs.serverUrl.trimEnd('/') + "/api/app-update/latest").build()
+            ).execute().use { it.body?.string() ?: "" }
+            val d = json.decodeFromString<RelayDto>(text)
+            if (d.tag.isBlank()) return@runCatching null
+            GhRelease(d.tag, d.htmlUrl, d.notes, d.apkUrl.ifBlank { null })
+        }.getOrNull()
+    }
+
+    /** 兜底：GitHub API 直连 */
+    private suspend fun tryGitHubDirect(): GhRelease? = withContext(Dispatchers.IO) {
+        runCatching {
+            val text = client.newCall(
+                Request.Builder().url(RELEASES_API)
+                    .header("Accept", "application/vnd.github+json")
+                    .build()
+            ).execute().use { it.body?.string() ?: "" }
+            val dto = json.decodeFromString<GhReleaseDto>(text)
+            GhRelease(
                 dto.tag_name, dto.html_url, dto.body,
                 dto.assets.firstOrNull { it.name.endsWith(".apk") }?.browser_download_url
                     ?: dto.assets.firstOrNull()?.browser_download_url
             )
-            showDialog = manual || Prefs.dismissedUpdateTag != dto.tag_name
-            if (manual) "发现新版本 ${dto.tag_name.removePrefix("native-v")}" else null
-        } catch (e: Exception) {
-            if (manual) "检查更新失败：${e.message}" else null
-        } finally { checking = false }
+        }.getOrNull()
     }
 
     fun dismiss() {

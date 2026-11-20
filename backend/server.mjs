@@ -892,6 +892,38 @@ http.createServer(async (req, res) => {
       return json(res, 404, { error: 'not found' })
     }
 
+    /* 应用更新检查（公开，免登录）：服务端中转 GitHub Releases API。
+     * 部分客户端网络直连 api.github.com 会被重置，但板子域名必然可达——以板子为跳板最稳。
+     * 内存缓存 10 分钟；GitHub 抖动时回退上次缓存。 */
+    let appUpdateCache = { at: 0, data: null }
+    if (p === '/app-update/latest' && req.method === 'GET') {
+      if (rateLimited('app-update:' + clientIp(req), 30, 60 * 1000)) return json(res, 429, { error: 'too frequent' })
+      if (Date.now() - appUpdateCache.at < 10 * 60 * 1000 && appUpdateCache.data) {
+        return json(res, 200, appUpdateCache.data)
+      }
+      try {
+        const r = await fetch('https://api.github.com/repos/rickylxw/classinfo-board/releases/latest', {
+          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'classinfo-board' }
+        })
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        const j = await r.json()
+        const apk = (j.assets || []).find(a => /\.apk$/.test(a.name))
+        appUpdateCache = {
+          at: Date.now(),
+          data: {
+            tag: j.tag_name,
+            apkUrl: apk ? apk.browser_download_url : '',
+            notes: j.body || '',
+            htmlUrl: j.html_url
+          }
+        }
+        return json(res, 200, appUpdateCache.data)
+      } catch (e) {
+        if (appUpdateCache.data) return json(res, 200, appUpdateCache.data)
+        return json(res, 502, { error: '更新源暂不可达，请稍后再试' })
+      }
+    }
+
     /* 共享申请（课程负责人）/ 同步 / 共享板 */
     if (p === '/share/apply' && req.method === 'POST') {
       const s = userAuth(req)
