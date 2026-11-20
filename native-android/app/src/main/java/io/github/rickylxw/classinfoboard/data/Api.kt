@@ -97,6 +97,12 @@ object Api {
     /* 操作批次：契约对齐 backend /data/ops（upsert/delete/syncStatus），响应带权威快照 */
     suspend fun pushOps(body: String): PushOpsResp =
         json.decodeFromString<PushOpsResp>(exec("/data/ops", "POST", body))
+
+    /* 意见反馈/故障上报：按会话学号记录，管理台处理（30 秒限频，服务端强制） */
+    suspend fun sendFeedback(type: String, content: String, app: String, device: String): Boolean {
+        val body = json.encodeToString(FeedbackReq.serializer(), FeedbackReq(type, content, app, device))
+        return json.decodeFromString<OkResp>(exec("/feedback", "POST", body)).ok
+    }
 }
 
 @Serializable

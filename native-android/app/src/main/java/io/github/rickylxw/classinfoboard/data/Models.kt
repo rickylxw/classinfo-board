@@ -106,3 +106,14 @@ data class PushOpsResp(
     val data: CloudData? = null,
     val dataUpdatedAt: Long = 0
 )
+
+@Serializable
+data class OkResp(val ok: Boolean = false)
+
+@Serializable
+data class FeedbackReq(
+    val type: String,
+    val content: String,
+    val app: String,
+    val device: String
+)

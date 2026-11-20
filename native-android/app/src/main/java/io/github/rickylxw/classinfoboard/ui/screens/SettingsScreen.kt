@@ -31,13 +31,16 @@ import androidx.compose.ui.unit.sp
 import io.github.rickylxw.classinfoboard.data.Api
 import io.github.rickylxw.classinfoboard.data.DEFAULT_SERVER
 import io.github.rickylxw.classinfoboard.data.Prefs
+import io.github.rickylxw.classinfoboard.data.Updater
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit) {
+fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit, onFeedback: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     var url by rememberSaveable { mutableStateOf(Prefs.serverUrl) }
     var msg by remember { mutableStateOf("") }
+    var updateMsg by remember { mutableStateOf("") }
 
     Column(
         Modifier
@@ -47,6 +50,30 @@ fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit) {
             .padding(16.dp)
     ) {
         Text("设置", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("关于与更新", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "当前版本 v" + Updater.currentVersion(ctx) + "（更新包来源：GitHub Releases）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+                )
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Button(onClick = {
+                        scope.launch { updateMsg = Updater.check(ctx, manual = true) ?: "" }
+                    }, enabled = !Updater.checking) { Text(if (Updater.checking) "检查中…" else "检查更新") }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = { onFeedback("") }) { Text("意见反馈") }
+                }
+                if (updateMsg.isNotBlank()) {
+                    Text(updateMsg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
@@ -106,8 +133,8 @@ fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
         Text(
-            "课程信息板 · 原生端 0.2.0\n" +
-                "✅ 登录 / 仪表盘（标完成·归档·删除·添加）/ 日程表（.ics 分享·系统日历写入·学期起点）\n" +
+            "课程信息板 · 原生端 v" + Updater.currentVersion(ctx) + "\n" +
+                "✅ 登录 / 仪表盘读写 / 日程表（.ics·系统日历）/ 自动更新 / 意见反馈\n" +
                 "🚧 进行中：共享板操作、课程管理、下节课小组件、群消息远程查看",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

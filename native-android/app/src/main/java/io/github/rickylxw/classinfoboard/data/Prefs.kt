@@ -35,6 +35,25 @@ object Prefs {
         set(v) = if (v.isNullOrBlank()) sp.edit().remove("semStart").apply()
                  else sp.edit().putString("semStart", v).apply()
 
+    /* ---------- 自动更新 ---------- */
+    var lastUpdateCheckAt: Long
+        get() = sp.getLong("lastUpdateCheckAt", 0L)
+        set(v) = sp.edit().putLong("lastUpdateCheckAt", v).apply()
+
+    var dismissedUpdateTag: String?
+        get() = sp.getString("dismissedUpdateTag", null)
+        set(v) = if (v.isNullOrBlank()) sp.edit().remove("dismissedUpdateTag").apply()
+                 else sp.edit().putString("dismissedUpdateTag", v).apply()
+
+    var lastApkDownloadId: Long
+        get() = sp.getLong("lastApkDownloadId", -1L)
+        set(v) = sp.edit().putLong("lastApkDownloadId", v).apply()
+
+    var lastApkDownloadTag: String?
+        get() = sp.getString("lastApkDownloadTag", null)
+        set(v) = if (v.isNullOrBlank()) sp.edit().remove("lastApkDownloadTag").apply()
+                 else sp.edit().putString("lastApkDownloadTag", v).apply()
+
     fun clearSession() {
         token = null
         xh = null

@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
+fun DashboardScreen(pad: PaddingValues, onNeedLogin: () -> Unit, onFeedback: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var opBusy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<PendingItem?>(null) }
@@ -105,6 +105,7 @@ fun DashboardScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
             ) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { onFeedback("故障：$msg\n（页面：仪表盘）") }) { Text("反馈") }
                     TextButton(onClick = { run { Repo.refresh() } }) { Text("重试") }
                 }
             }
