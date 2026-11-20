@@ -82,8 +82,8 @@ import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-private const val SLOT_H = 44
-private const val DAY_W = 108
+private const val SLOT_H = 42
+private const val DAY_W = 72
 private const val HEADER_H = 40
 
 internal fun colorOf(hex: String?): Color =
@@ -198,6 +198,29 @@ fun ScheduleScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
                         menu = false
                         requestCal()
                     })
+                    DropdownMenuItem(text = { Text("🖼 导出本周为图片") }, onClick = {
+                        menu = false
+                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            runCatching {
+                                val bmp = io.github.rickylxw.classinfoboard.data.TimetableImage.buildWeek(
+                                    slots, monday, weekNo, todayIdx
+                                )
+                                val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+                                val f = File(dir, "timetable.png")
+                                f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    context, context.packageName + ".fileprovider", f
+                                )
+                                val i = Intent(Intent.ACTION_SEND)
+                                    .setType("image/png")
+                                    .putExtra(Intent.EXTRA_STREAM, uri)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                context.startActivity(Intent.createChooser(i, "分享课表图片"))
+                            }.onFailure { t ->
+                                Toast.makeText(context, "导出失败：" + t.message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    })
                     DropdownMenuItem(text = { Text("学期第一周周一：" + (Repo.semStart ?: "未设")) }, onClick = {
                         menu = false; showSemStart = true
                     })
@@ -263,7 +286,7 @@ fun ScheduleScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
         // 周网格（横向滚动；节次列 + 7 天列）
         Row(Modifier.fillMaxSize().horizontalScroll(rememberScrollState())) {
             // 节次列
-            Column(Modifier.width(28.dp)) {
+            Column(Modifier.width(24.dp)) {
                 Box(Modifier.height(HEADER_H.dp))
                 for (p in 1..13) {
                     Box(Modifier.height(SLOT_H.dp), contentAlignment = Alignment.Center) {
@@ -318,11 +341,11 @@ fun ScheduleScreen(pad: PaddingValues, onNeedLogin: () -> Unit) {
                             ) {
                                 Column {
                                     Text(
-                                        ws.course.name, fontSize = 10.sp, lineHeight = 13.sp,
+                                        ws.course.name, fontSize = 9.sp, lineHeight = 12.sp,
                                         fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis
                                     )
                                     if (ws.slot.room.isNotBlank() && span >= 2) {
-                                        Text("@" + ws.slot.room, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                        Text("@" + ws.slot.room, fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                                     }
                                 }
                             }
