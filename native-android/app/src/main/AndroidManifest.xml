@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <!-- 应用内下载更新包后拉起安装器（targetSdk 30+ 必需声明） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- DDL/下节课提醒通知（Android 13+ 运行时请求） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="@string/app_name"
@@ -39,6 +41,15 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/next_class_widget_info" />
+        </receiver>
+
+        <!-- 提醒检查闹钟（30 分钟兜底 + App 启动即查） -->
+        <receiver
+            android:name=".ReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="io.github.rickylxw.classinfoboard.REMINDER_CHECK" />
+            </intent-filter>
         </receiver>
 
         <!-- .ics 导出分享（缓存目录文件经 FileProvider 授读） -->

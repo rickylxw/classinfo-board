@@ -86,7 +86,7 @@ private const val SLOT_H = 44
 private const val DAY_W = 108
 private const val HEADER_H = 40
 
-fun colorOf(hex: String?): Color =
+internal fun colorOf(hex: String?): Color =
     runCatching { Color(android.graphics.Color.parseColor(hex ?: "#6366F1")) }
         .getOrDefault(Color(0xFF6366F1))
 

@@ -49,11 +49,11 @@ import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddAssignmentDialog(onDismiss: () -> Unit) {
+fun AddAssignmentDialog(presetCourseId: String? = null, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     val courses = Repo.data?.courses.orEmpty()
 
-    var courseId by remember { mutableStateOf(courses.firstOrNull()?.id ?: "personal") }
+    var courseId by remember { mutableStateOf(presetCourseId ?: courses.firstOrNull()?.id ?: "personal") }
     var title by remember { mutableStateOf("") }
     var date by remember { mutableStateOf<LocalDate?>(null) }
     var time by remember { mutableStateOf<LocalTime?>(LocalTime.of(23, 59)) }

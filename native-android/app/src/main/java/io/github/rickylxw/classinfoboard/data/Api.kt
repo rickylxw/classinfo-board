@@ -5,6 +5,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -102,6 +104,17 @@ object Api {
     suspend fun sendFeedback(type: String, content: String, app: String, device: String): Boolean {
         val body = json.encodeToString(FeedbackReq.serializer(), FeedbackReq(type, content, app, device))
         return json.decodeFromString<OkResp>(exec("/feedback", "POST", body)).ok
+    }
+
+    /* 投稿作业到共享板（成员提交，经负责人/管理员审核后同步全班） */
+    suspend fun submitBoardAssignment(key: String, title: String, deadline: String, requirement: String): Boolean {
+        val body = buildJsonObject {
+            put("key", key)
+            put("title", title)
+            put("deadline", deadline)
+            put("requirement", requirement)
+        }
+        return json.decodeFromString<OkResp>(exec("/board/assignment/submit", "POST", body.toString())).ok
     }
 }
 

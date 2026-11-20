@@ -1,6 +1,7 @@
 package io.github.rickylxw.classinfoboard.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,7 +60,12 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(pad: PaddingValues, onNeedLogin: () -> Unit, onFeedback: (String) -> Unit = {}) {
+fun DashboardScreen(
+    pad: PaddingValues,
+    onNeedLogin: () -> Unit,
+    onFeedback: (String) -> Unit = {},
+    onOpenCourse: (String) -> Unit = {}
+) {
     val scope = rememberCoroutineScope()
     var opBusy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<PendingItem?>(null) }
@@ -122,18 +128,41 @@ fun DashboardScreen(pad: PaddingValues, onNeedLogin: () -> Unit, onFeedback: (St
             return@Column
         }
 
-        val items = pendingItems(d, Repo.syncMap)
-        val st = stats(d, Repo.syncMap)
+            val items = pendingItems(d, Repo.syncMap)
+            val st = stats(d, Repo.syncMap)
 
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            StatCard(Modifier.weight(1f), "📚 ${st["courses"] ?: 0}", "课程")
-            StatCard(Modifier.weight(1f), "⏰ ${st["over"] ?: 0}", "已逾期")
-            StatCard(Modifier.weight(1f), "📌 ${st["soon"] ?: 0}", "7天内")
-            StatCard(Modifier.weight(1f), "📝 ${st["pending"] ?: 0}", "待办")
-        }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StatCard(Modifier.weight(1f), "📚 ${st["courses"] ?: 0}", "课程")
+                StatCard(Modifier.weight(1f), "⏰ ${st["over"] ?: 0}", "已逾期")
+                StatCard(Modifier.weight(1f), "📌 ${st["soon"] ?: 0}", "7天内")
+                StatCard(Modifier.weight(1f), "📝 ${st["pending"] ?: 0}", "待办")
+            }
+
+            // 课程快捷入口（点击进课程详情）
+            if (d.courses.isNotEmpty()) {
+                androidx.compose.foundation.lazy.LazyRow(
+                    Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(16.dp, 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(d.courses, key = { it.id }) { c ->
+                        androidx.compose.material3.Surface(
+                            onClick = { onOpenCourse(c.id) },
+                            shape = RoundedCornerShape(999.dp),
+                            color = colorOf(c.color).copy(alpha = 0.14f)
+                        ) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(8.dp).background(colorOf(c.color), CircleShape))
+                                Spacer(Modifier.width(6.dp))
+                                Text(c.name, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
 
         if (items.isEmpty()) {
             Empty("🎉", if ((st["courses"] ?: 0) == 0) "还没有课程——先在网页/桌面端导入课表或新建课程" else "没有待办作业，好好休息！")
@@ -146,6 +175,7 @@ fun DashboardScreen(pad: PaddingValues, onNeedLogin: () -> Unit, onFeedback: (St
                     AssignmentRow(
                         it,
                         enabled = !opBusy,
+                        onOpen = if (it.courseId != "personal") { { onOpenCourse(it.courseId) } } else null,
                         onToggle = { p -> run { if (p.from == null) Repo.toggleDone(p.toAssignment(d)) else Repo.toggleSynced(p.syncId) } },
                         onArchive = { p -> run { if (p.from == null) Repo.archive(p.toAssignment(d)) else Repo.archiveSynced(p.syncId) } },
                         onDelete = { confirmDelete = it }
@@ -205,6 +235,7 @@ private fun StatCard(modifier: Modifier, num: String, label: String) {
 private fun AssignmentRow(
     it: PendingItem,
     enabled: Boolean,
+    onOpen: (() -> Unit)?,
     onToggle: (PendingItem) -> Unit,
     onArchive: (PendingItem) -> Unit,
     onDelete: (PendingItem) -> Unit
@@ -232,7 +263,11 @@ private fun AssignmentRow(
                     modifier = Modifier.size(26.dp)
                 )
             }
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .let { m -> if (onOpen != null) m.clickable(onClick = onOpen) else m }
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier.size(10.dp).background(

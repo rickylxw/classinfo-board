@@ -7,6 +7,7 @@ data class PendingItem(
     val id: String,
     val title: String,
     val deadline: String?,       // "YYYY-MM-DDTHH:mm" 可空
+    val courseId: String,        // 'personal' = 个人待办
     val courseName: String,
     val color: String?,
     val from: String?,           // null=我的作业/个人待办，否则=共享板来源（负责人名）
@@ -49,6 +50,12 @@ fun fmtDeadline(deadline: String?): String {
     } catch (_: Exception) { deadline }
 }
 
+fun fmtSize(bytes: Long): String = when {
+    bytes >= 1 shl 20 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0)
+    bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
+    else -> "$bytes B"
+}
+
 /* 合成待办列表：我的（含个人待办，未归档未完成）+ 班级同步（syncStatus 非 done/archived），按截止升序 */
 fun pendingItems(data: CloudData, sync: Map<String, SyncBoard>): List<PendingItem> {
     val coursesById = data.courses.associateBy { it.id }
@@ -61,6 +68,7 @@ fun pendingItems(data: CloudData, sync: Map<String, SyncBoard>): List<PendingIte
             id = "own-" + a.id,
             title = a.title,
             deadline = a.deadline,
+            courseId = a.courseId,
             courseName = c?.name ?: "个人待办",
             color = c?.color ?: "#64748B",
             from = null,
@@ -77,6 +85,7 @@ fun pendingItems(data: CloudData, sync: Map<String, SyncBoard>): List<PendingIte
                 id = "sync-" + sa.id,
                 title = sa.title,
                 deadline = sa.deadline,
+                courseId = course.id,
                 courseName = course.name,
                 color = course.color,
                 from = board.from ?: "班级同步",
@@ -90,8 +99,7 @@ fun pendingItems(data: CloudData, sync: Map<String, SyncBoard>): List<PendingIte
     )
 }
 
-fun stats(data: CloudData, sync: Map<String, SyncBoard>, now: Long = System.currentTimeMillis()): Map<String, Int> {
-    val items = pendingItems(data, sync)
+fun stats(data: CloudData, sync: Map<String, SyncBoard>, now: Long = System.currentTimeMillis()): Map<String, Int> {    val items = pendingItems(data, sync)
     var over = 0; var soon = 0
     for (it in items) {
         if (it.deadline.isNullOrBlank()) continue

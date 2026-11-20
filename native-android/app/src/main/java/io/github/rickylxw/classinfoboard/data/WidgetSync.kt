@@ -21,9 +21,18 @@ data class WidgetTodayClass(
 )
 
 @Serializable
+data class WidgetDeadline(
+    val id: String,
+    val title: String,
+    val course: String,
+    val at: Long          // epoch millis
+)
+
+@Serializable
 data class WidgetSnapshot(
     val loggedIn: Boolean = true,
     val today: List<WidgetTodayClass> = emptyList(),
+    val deadlines: List<WidgetDeadline> = emptyList(),   // 未完成且有截止时间的待办（≤12 条，提醒通知用）
     val weekNo: Int? = null,
     val pending: Int = 0,
     val updatedAt: Long = 0
@@ -37,6 +46,13 @@ object WidgetSync {
         val sem = Repo.semStart
         val now = LocalDateTime.now()
         val t = if (d != null && Prefs.loggedIn) todayClasses(d.courses, sem, now) else emptyList()
+        val dls = if (d != null && Prefs.loggedIn) {
+            pendingItems(d, Repo.syncMap).mapNotNull { p ->
+                val t2 = p.deadline?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
+                    ?: return@mapNotNull null
+                WidgetDeadline(p.id, p.title, p.courseName, t2.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+            }.sortedBy { it.at }.take(12)
+        } else emptyList()
         return WidgetSnapshot(
             loggedIn = Prefs.loggedIn,
             today = t.map { c ->
@@ -46,6 +62,7 @@ object WidgetSync {
                     c.section
                 )
             },
+            deadlines = dls,
             weekNo = sem?.let { weekNumberOf(now.toLocalDate(), it) },
             pending = if (d != null) pendingItems(d, Repo.syncMap).size else 0,
             updatedAt = System.currentTimeMillis()

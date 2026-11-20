@@ -46,7 +46,9 @@ data class FileRec(
     val courseId: String? = null,
     val name: String? = null,
     val kind: String? = null,
-    val size: Long = 0
+    val size: Long = 0,
+    val url: String? = null,
+    val note: String? = null
 )
 
 /* GET /api/data：服务器权威快照 */
@@ -76,6 +78,7 @@ data class SyncFile(
 
 @Serializable
 data class SyncGroup(
+    val id: String? = null,
     val type: String? = null,
     val num: String? = null,
     val link: String? = null,

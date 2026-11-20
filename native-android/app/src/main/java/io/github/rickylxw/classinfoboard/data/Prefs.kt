@@ -63,6 +63,16 @@ object Prefs {
         set(v) = if (v.isNullOrBlank()) sp.edit().remove("widgetSnapshot").apply()
                  else sp.edit().putString("widgetSnapshot", v).apply()
 
+    /* ---------- 提醒通知 ---------- */
+    var remindersOn: Boolean
+        get() = sp.getBoolean("remindersOn", true)
+        set(v) = sp.edit().putBoolean("remindersOn", v).apply()
+
+    /** 已提醒过的 key → 时间戳（JSON map；防重复提醒，7 天前自动清） */
+    var notifiedKeys: String
+        get() = sp.getString("notifiedKeys", "{}") ?: "{}"
+        set(v) = sp.edit().putString("notifiedKeys", v).apply()
+
     fun clearSession() {
         token = null
         xh = null

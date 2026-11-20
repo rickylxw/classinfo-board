@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import io.github.rickylxw.classinfoboard.data.Api
 import io.github.rickylxw.classinfoboard.data.DEFAULT_SERVER
 import io.github.rickylxw.classinfoboard.data.Prefs
+import io.github.rickylxw.classinfoboard.data.Reminders
 import io.github.rickylxw.classinfoboard.data.Updater
 import kotlinx.coroutines.launch
 
@@ -41,6 +42,15 @@ fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit, onFeedback: (Str
     var url by rememberSaveable { mutableStateOf(Prefs.serverUrl) }
     var msg by remember { mutableStateOf("") }
     var updateMsg by remember { mutableStateOf("") }
+    var remOn by rememberSaveable { mutableStateOf(Prefs.remindersOn) }
+    val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Prefs.remindersOn = granted
+        remOn = granted
+        if (granted) Reminders.scheduleAlarm(ctx) else Reminders.cancelAlarm(ctx)
+        if (!granted) msg = "通知权限未开启，提醒不会弹出（可在系统设置里手动开启）"
+    }
 
     Column(
         Modifier
@@ -106,6 +116,35 @@ fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit, onFeedback: (Str
                 }
                 if (msg.isNotBlank()) {
                     Text(msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("🔔 作业与上课提醒", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "DDL 截止前 24 小时内、下节课前 15 分钟系统通知（每 30 分钟检查一次）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    androidx.compose.material3.Switch(
+                        checked = remOn,
+                        onCheckedChange = { want ->
+                            if (!want) {
+                                Prefs.remindersOn = false
+                                remOn = false
+                                Reminders.cancelAlarm(ctx)
+                            } else {
+                                notifPerm.launch(Reminders.PERMISSION)
+                            }
+                        })
                 }
             }
         }

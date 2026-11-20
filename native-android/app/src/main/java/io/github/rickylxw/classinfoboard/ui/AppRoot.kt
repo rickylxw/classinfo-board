@@ -1,6 +1,7 @@
 package io.github.rickylxw.classinfoboard.ui
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
@@ -21,10 +22,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import io.github.rickylxw.classinfoboard.data.Prefs
 import io.github.rickylxw.classinfoboard.data.Repo
 import io.github.rickylxw.classinfoboard.data.Updater
 import io.github.rickylxw.classinfoboard.ui.screens.AddAssignmentDialog
+import io.github.rickylxw.classinfoboard.ui.screens.CourseDetailScreen
 import io.github.rickylxw.classinfoboard.ui.screens.DashboardScreen
 import io.github.rickylxw.classinfoboard.ui.screens.FeedbackDialog
 import io.github.rickylxw.classinfoboard.ui.screens.LoginScreen
@@ -40,6 +43,7 @@ fun AppRoot() {
     var showAdd by remember { mutableStateOf(false) }
     var showFeedback by remember { mutableStateOf(false) }
     var feedbackText by remember { mutableStateOf("") }
+    var detailCourseId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // 自动更新检查：启动后静默查一次（8 小时节流），发现新版本弹窗
     LaunchedEffect(Unit) {
@@ -83,7 +87,8 @@ fun AppRoot() {
                 0 -> DashboardScreen(
                     pad,
                     onNeedLogin = { Repo.reset(); loggedIn = false },
-                    onFeedback = { prefill -> feedbackText = prefill; showFeedback = true })
+                    onFeedback = { prefill -> feedbackText = prefill; showFeedback = true },
+                    onOpenCourse = { detailCourseId = it })
                 1 -> ScheduleScreen(pad, onNeedLogin = { Repo.reset(); loggedIn = false })
                 else -> SettingsScreen(
                     pad,
@@ -93,6 +98,16 @@ fun AppRoot() {
         }
 
         if (showAdd) AddAssignmentDialog(onDismiss = { showAdd = false })
+    }
+
+    // 课程详情（全屏覆盖，返回回到原页签）
+    if (detailCourseId != null) {
+        CourseDetailScreen(
+            courseId = detailCourseId!!,
+            pad = PaddingValues(0.dp),
+            onBack = { detailCourseId = null },
+            onFeedback = { prefill -> feedbackText = prefill; showFeedback = true }
+        )
     }
 
     // 更新弹窗：登录前后都可弹出（检查独立于登录态）
