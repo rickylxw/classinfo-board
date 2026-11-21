@@ -11,7 +11,8 @@ data class PendingItem(
     val courseName: String,
     val color: String?,
     val from: String?,           // null=我的作业/个人待办，否则=共享板来源（负责人名）
-    val done: Boolean
+    val done: Boolean,
+    val requirement: String? = null
 )
 
 data class DdlBadge(val text: String, val level: Int)   // level: 0 一般 1 提醒 2 紧急(今天/已逾期)
@@ -78,7 +79,8 @@ fun pendingItems(data: CloudData, sync: Map<String, SyncBoard>): List<PendingIte
             courseName = c?.name ?: "个人待办",
             color = c?.color ?: "#64748B",
             from = null,
-            done = false
+            done = false,
+            requirement = a.requirement
         )
     }
 
@@ -95,7 +97,8 @@ fun pendingItems(data: CloudData, sync: Map<String, SyncBoard>): List<PendingIte
                 courseName = course.name,
                 color = course.color,
                 from = board.from ?: "班级同步",
-                done = false
+                done = false,
+                requirement = sa.requirement
             )
         }
     }

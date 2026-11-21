@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -35,6 +36,7 @@ import io.github.rickylxw.classinfoboard.data.Reminders
 import io.github.rickylxw.classinfoboard.data.Updater
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit, onFeedback: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
@@ -70,6 +72,28 @@ fun SettingsScreen(pad: PaddingValues, onLoggedOut: () -> Unit, onFeedback: (Str
             .padding(16.dp)
     ) {
         Text("设置", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+
+        // 外观：主题三态切换
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("🎨 外观", fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    io.github.rickylxw.classinfoboard.ui.theme.ThemeMode.entries.forEach { m ->
+                        androidx.compose.material3.FilterChip(
+                            selected = io.github.rickylxw.classinfoboard.ui.theme.ThemeState.mode == m,
+                            onClick = {
+                                io.github.rickylxw.classinfoboard.ui.theme.ThemeState.mode = m
+                                Prefs.themeMode = m.name
+                            },
+                            label = { Text(m.label) }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {

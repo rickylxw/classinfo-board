@@ -1,6 +1,12 @@
 package io.github.rickylxw.classinfoboard.ui
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -83,17 +89,27 @@ fun AppRoot() {
                 }
             }
         ) { pad: PaddingValues ->
-            when (tab) {
-                0 -> DashboardScreen(
-                    pad,
-                    onNeedLogin = { Repo.reset(); loggedIn = false },
-                    onFeedback = { prefill -> feedbackText = prefill; showFeedback = true },
-                    onOpenCourse = { detailCourseId = it })
-                1 -> ScheduleScreen(pad, onNeedLogin = { Repo.reset(); loggedIn = false })
-                else -> SettingsScreen(
-                    pad,
-                    onLoggedOut = { Repo.reset(); loggedIn = false },
-                    onFeedback = { prefill -> feedbackText = prefill; showFeedback = true })
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    (fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 24 })
+                        .togetherWith(fadeOut(tween(90)))
+                },
+                label = "tab"
+            ) { t ->
+                when (t) {
+                    0 -> DashboardScreen(
+                        pad,
+                        onNeedLogin = { Repo.reset(); loggedIn = false },
+                        onFeedback = { prefill -> feedbackText = prefill; showFeedback = true },
+                        onOpenCourse = { detailCourseId = it },
+                        onOpenSettings = { tab = 2 })
+                    1 -> ScheduleScreen(pad, onNeedLogin = { Repo.reset(); loggedIn = false })
+                    else -> SettingsScreen(
+                        pad,
+                        onLoggedOut = { Repo.reset(); loggedIn = false },
+                        onFeedback = { prefill -> feedbackText = prefill; showFeedback = true })
+                }
             }
         }
 

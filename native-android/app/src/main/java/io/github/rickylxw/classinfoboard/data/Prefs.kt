@@ -68,6 +68,11 @@ object Prefs {
         get() = sp.getBoolean("remindersOn", true)
         set(v) = sp.edit().putBoolean("remindersOn", v).apply()
 
+    /** 主题模式：system / light / dark */
+    var themeMode: String
+        get() = sp.getString("themeMode", "system") ?: "system"
+        set(v) = sp.edit().putString("themeMode", v).apply()
+
     /** 常驻状态栏通知（音乐播放器式卡片，默认关） */
     var statusBarOn: Boolean
         get() = sp.getBoolean("statusBarOn", false)
