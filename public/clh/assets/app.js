@@ -207,6 +207,25 @@
           if (d) { openDeck(c.id, d.id); return; }
           viewMode.value = settings.lastView || 'bank';
         }
+        // 课程页深链：/clh/?course=<板子课程名>（嵌在每门课里时由板子带上）
+        // 选中同名学习课程；没有就自动创建一个，实现「按课程」隔离
+        const urlCourse = new URLSearchParams(location.search).get('course');
+        if (urlCourse) {
+          const norm = s => String(s || '').toLowerCase().replace(/\s+/g, '');
+          let target = courses.value.find(x => norm(x.name) === norm(urlCourse))
+            || courses.value.find(x => norm(x.name).includes(norm(urlCourse)) || norm(urlCourse).includes(norm(x.name)));
+          if (!target) {
+            target = { id: Store.uid(), name: urlCourse, createdAt: new Date().toISOString(), decks: [], images: [] };
+            courses.value.push(target);
+            saveCourse(target);
+            scheduleCloudPush();
+            showToast(`已为「${urlCourse}」创建学习课程`, 'success');
+          }
+          // 有课件 → 进导图看最近一份；没有 → 进题目本（空态引导导入）
+          const lastDeck = target.decks[target.decks.length - 1];
+          if (lastDeck) openDeck(target.id, lastDeck.id);
+          else openBank(target);
+        }
       }
       function saveActive() {
         if (activeCourse.value) {

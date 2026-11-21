@@ -205,6 +205,13 @@ async function jumpGroup(g) {
 function openGroupMessages(num) {
   store.view = { type: 'messages', id: 'qq|group|' + String(num).trim(), q: '' }
 }
+
+/* ---------- 🎓 学习助手（CLH 内嵌） ----------
+ * iframe 懒加载：展开才挂 src；按课程名深链（?course=<课名>）让 CLH 自动选中/创建同名学习课程。
+ * encodeURIComponent 防课程名里的空格/中文破坏 URL。
+ */
+const clhOpen = ref(false)
+const clhSrc = computed(() => '/clh/index.html?course=' + encodeURIComponent(props.course.name))
 /* 教学群（可多个）：负责人看自己维护的列表，成员看同步到的列表 */
 const groupList = computed(() => {
   const list = shareInfo.value.isOwner
@@ -251,6 +258,7 @@ function fileSub(f) {
 <template>
   <div>
     <div class="page-title"><h2>课程详情</h2></div>
+
 
     <section class="card course-head" :style="{ '--c': course.color }">
       <div class="ch-row">
@@ -612,6 +620,22 @@ function fileSub(f) {
           </template>
         </section>
 
+        <!-- 🎓 学习助手：CLH 嵌入本课（懒加载，按课程名深链自动选中/创建同名学习课程） -->
+        <section class="card">
+          <div class="card-head">
+            <h3>🎓 学习助手 <span class="muted">（课件 → 思维导图 · 考点 · 题目 · 复习）</span></h3>
+            <div class="ops">
+              <button class="btn sm" @click="clhOpen = !clhOpen">{{ clhOpen ? '收起' : '展开' }}</button>
+            </div>
+          </div>
+          <div v-if="clhOpen" class="clh-embed">
+            <iframe :src="clhSrc" title="学习助手 · Class Learning Helper"></iframe>
+          </div>
+          <div v-else class="muted" style="font-size:12.5px;padding:2px 0 4px;">
+            把这门课的课件（.pptx / .pdf）变成思维导图、自动提考点出题，与班级共享附件打通；数据按课程隔离保存。
+          </div>
+        </section>
+
         <!-- 文件 -->
         <section class="card">
           <div class="card-head">
@@ -671,3 +695,21 @@ function fileSub(f) {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 学习助手内嵌：可折叠的固定高度工作区（iframe 内自带滚动与工具栏） */
+.clh-embed {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.clh-embed iframe {
+  width: 100%;
+  height: min(720px, calc(100dvh - 320px));
+  min-height: 420px;
+  border: none;
+  display: block;
+}
+</style>

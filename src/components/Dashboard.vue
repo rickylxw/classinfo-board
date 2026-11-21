@@ -152,7 +152,7 @@ function openCourse(id) {
           <span>{{ statFilter === 'overdue' ? '没有逾期作业，保持住！' : statFilter === 'soon' ? '7 天内没有截止的作业' : store.courses.length ? '没有待办作业，好好休息！' : '还没有课程，点击右上角「新建课程」开始吧' }}</span>
           <div v-if="store.courses.length" class="empty-links">
             <button class="btn sm" @click="store.view = { type: 'schedule', id: null, q: '' }">📅 去日程表</button>
-            <button class="btn sm" @click="store.view = { type: 'clh', id: null, q: '' }">🎓 课件助手</button>
+            <button class="btn sm" @click="store.view = { type: 'clh', id: null, q: '' }">🎓 学习助手</button>
             <button v-if="qqReady" class="btn sm" @click="store.view = { type: 'messages', id: null, q: '' }">💬 群消息</button>
           </div>
         </div>
