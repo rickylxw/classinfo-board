@@ -8,8 +8,8 @@
   html, body { background: transparent; overflow: hidden; font: 13px/1.4 "Segoe UI", "Microsoft YaHei", sans-serif; }
 
   .bar {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 14px;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
     background: rgba(15, 19, 30, .86);
     border: 1px solid rgba(255, 255, 255, .10);
     border-radius: 14px;
@@ -18,12 +18,13 @@
     box-shadow: 0 4px 18px rgba(0, 0, 0, .35);
   }
   .bar button, .bar .chip { -webkit-app-region: no-drag; }
+  .divider { width: 1px; height: 30px; background: rgba(255,255,255,.14); border-radius: 1px; }
 
   .cats { display: flex; gap: 4px; }
   .cat {
     border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06);
-    color: #b9c2d4; border-radius: 8px; padding: 4px 10px;
-    font-size: 12px; cursor: pointer; transition: all .15s; white-space: nowrap;
+    color: #b9c2d4; border-radius: 8px; padding: 3px 9px;
+    font-size: 11.5px; cursor: pointer; transition: all .15s; white-space: nowrap;
   }
   .cat:hover { background: rgba(255,255,255,.14); }
   .cat.on { color: #fff; font-weight: 600; }
@@ -31,16 +32,16 @@
   .cat.on[data-cat="学习"] { background: #1f9d6b; border-color: #1f9d6b; }
   .cat.on[data-cat="游戏"] { background: #d05a2c; border-color: #d05a2c; }
 
-  .timebox { display: flex; flex-direction: column; align-items: flex-start; min-width: 96px; }
-  .time { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .5px; line-height: 1.1; }
+  .timebox { display: flex; flex-direction: column; align-items: flex-start; min-width: 100px; }
+  .time { font-size: 23px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .5px; line-height: 1.1; }
   .sub { font-size: 10.5px; color: #8b94a8; margin-top: 2px; display: flex; gap: 6px; align-items: center; }
   .run-dot { width: 7px; height: 7px; border-radius: 50%; background: #3ddc84; animation: blink 1.6s infinite; }
   .run-dot.off { background: #6b7488; animation: none; }
   @keyframes blink { 50% { opacity: .25; } }
 
-  .goalbox { display: flex; flex-direction: column; gap: 3px; min-width: 110px; }
-  .goal-meta { font-size: 10.5px; color: #8b94a8; display: flex; justify-content: space-between; gap: 8px; }
-  .goal-track { height: 4px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .goalbox { display: flex; flex-direction: column; gap: 4px; min-width: 118px; }
+  .goal-meta { font-size: 10.5px; color: #aab3c7; display: flex; justify-content: space-between; gap: 8px; }
+  .goal-track { height: 5px; border-radius: 3px; background: rgba(255,255,255,.20); overflow: hidden; }
   .goal-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #4f8cff, #2ec27e); width: 0%; transition: width .4s; }
   .goal-fill.full { background: linear-gradient(90deg, #2ec27e, #f5c518); }
 
@@ -105,6 +106,7 @@
       <button class="cat" data-cat="学习">学习</button>
       <button class="cat" data-cat="游戏">游戏</button>
     </div>
+    <span class="divider"></span>
     <div class="timebox">
       <div class="time" id="time">00:00:00</div>
       <div class="sub">

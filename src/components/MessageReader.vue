@@ -1,3 +1,9 @@
+<script>
+// 模块级缓存：/api/chats 是全库聚合（~3 秒），切走再切回时先用旧数据秒显、后台静默刷新
+let memChats = null
+let memStats = ''
+</script>
+
 <script setup>
 /* 群消息阅读器（仅桌面端）：本机 QQ Reader 消息库的只读视图
  * 数据源：QQ Reader 服务 127.0.0.1:3210 的 4 个只读 API（经主进程代理），
@@ -90,6 +96,7 @@ function hl(text) {
 async function loadChats() {
   try {
     state.chats = await qqApi('/api/chats')
+    memChats = state.chats
     if (state.conv && state.convMeta?.name === state.conv) {
       const row = state.chats.find(c => c.conv === state.conv)
       if (row) state.convMeta = { name: nameOf(row), source: row.source, chat_type: row.chat_type, cnt: row.cnt }
@@ -100,7 +107,8 @@ async function loadStats() {
   try {
     const s = await qqApi('/api/stats')
     state.stats = (s.sources || []).map(x => `${SRC_LABEL[x.source] ?? x.source} ${(x.cnt || 0).toLocaleString()} 条`).join(' · ')
-  } catch { state.stats = '' }
+    memStats = state.stats
+  } catch { /* 保留旧值 */ }
 }
 async function loadMessages(initial = false) {
   if (!state.conv || (state.loadingOlder && !initial)) return
@@ -201,7 +209,9 @@ onMounted(async () => {
   state.ready = await probeQQ()
   state.reason = qqReason.value
   if (!state.ready) return
-  state.loadingChats = true
+  // 有缓存先秒显（列表/统计），加载占位只在真正没数据时出现
+  if (memChats) { state.chats = memChats; state.stats = memStats }
+  state.loadingChats = !(memChats && memChats.length)
   const chatsTask = Promise.all([loadChats(), loadStats()]).finally(() => { state.loadingChats = false })
   // 深链（课程页跳转 qq|group|<群号>）：不等慢的会话列表，先按串直接打开
   if (store.view.id) openConvString(String(store.view.id))
@@ -334,9 +344,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* 满高双栏：顶栏 57 + main 上内边 20 + 下内边 48 + 页脚 60 */
+/* 满高双栏：顶栏 57 + main 上内边 20 + 收紧后的下内边 10 + 页脚 60（.main:has 收紧规则见 style.css） */
 .mr-root {
-  height: calc(100dvh - 185px);
+  height: calc(100dvh - 147px);
   min-height: 440px;
   display: flex;
   flex-direction: column;
@@ -589,7 +599,7 @@ onBeforeUnmount(() => {
 
 /* 窄屏：会话列表收到上方 */
 @media (max-width: 760px) {
-  .mr-root { height: calc(100dvh - 195px); }
+  .mr-root { height: calc(100dvh - 155px); }
   .mr-sessions { width: 100%; min-width: 0; max-height: 34%; border-right: none; border-bottom: 1px solid var(--line); }
   .mr-msg-body { max-width: 80%; }
 }

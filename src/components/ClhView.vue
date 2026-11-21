@@ -11,14 +11,14 @@
 </template>
 
 <style scoped>
-/* 满高：顶栏 57 + main 上内边 20 + 下内边 48 + 页脚 60 */
-.clh-page { height: calc(100dvh - 185px); min-height: 460px; }
+/* 满高：顶栏 57 + main 上内边 20 + 收紧后的下内边 10 + 页脚 60（.main:has 收紧规则见 style.css） */
+.clh-page { height: calc(100dvh - 147px); min-height: 460px; }
 .clh-frame {
   width: 100%; height: 100%;
   border: 1px solid var(--line); border-radius: var(--radius);
   background: #fff; display: block;
 }
 @media (max-width: 760px) {
-  .clh-page { height: calc(100dvh - 195px); }
+  .clh-page { height: calc(100dvh - 155px); }
 }
 </style>

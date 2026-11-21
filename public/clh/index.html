@@ -49,6 +49,7 @@ window.addEventListener('unhandledrejection', function (e) {
     <button class="btn" @click="openStats" :disabled="!activeCourse" title="错题追踪与知识点掌握度">📊 弱点</button>
 
     <div class="actions" v-show="view === 'map'">
+      <span v-if="!activeCourse" class="need-course">👈 请先在左侧新建 / 选择课程</span>
       <button class="btn primary" @click="pickFile" :disabled="!activeCourse">📂 打开 PPT / PDF</button>
       <input ref="fileInput" type="file" accept=".pptx,.pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf" multiple hidden @change="onFile">
       <button class="btn" @click="pickFolder" :disabled="!activeCourse" title="选择一个文件夹，导入其中全部 .pptx / .pdf">📁 打开文件夹</button>

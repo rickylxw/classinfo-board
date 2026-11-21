@@ -258,9 +258,9 @@ function fileSub(f) {
           <h2>{{ course.name }}</h2>
           <div class="ch-meta">
             <span v-if="course.category" class="chip cat">🏷️ {{ course.category }}</span>
-            <span v-if="course.teacher" class="chip">👤 {{ course.teacher }}</span>
-            <span v-if="course.semester" class="chip">📅 {{ course.semester }}</span>
-            <span class="chip">作业 {{ asgCount }} · 文件 {{ fileCount }}</span>
+            <span v-if="course.teacher" class="chip ghost">👤 {{ course.teacher }}</span>
+            <span v-if="course.semester" class="chip ghost">📅 {{ course.semester }}</span>
+            <span class="chip ghost">作业 {{ asgCount }} · 文件 {{ fileCount }}</span>
             <!-- 桌面端：课程绑定 QQ 群时一键看群消息 -->
             <button
               v-if="qqReady && course.group?.type === 'QQ群' && course.group?.num"

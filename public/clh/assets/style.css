@@ -42,6 +42,8 @@ body {
 
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .v-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+/* 未选课程时的引导提示：解释为何大部分按钮置灰 */
+.need-course { font-size: 12.5px; color: #b45309; background: #fdf0d7; border: 1px solid #f3e2c0; border-radius: 8px; padding: 6px 12px; white-space: nowrap; }
 
 .btn {
   border: 1px solid var(--line); background: #fff; color: var(--text);
@@ -490,6 +492,8 @@ body {
 
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .v-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+/* 未选课程时的引导提示：解释为何大部分按钮置灰 */
+.need-course { font-size: 12.5px; color: #b45309; background: #fdf0d7; border: 1px solid #f3e2c0; border-radius: 8px; padding: 6px 12px; white-space: nowrap; }
 
 .btn {
   border: 1px solid var(--line); background: #fff; color: var(--text);

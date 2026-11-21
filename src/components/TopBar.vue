@@ -10,6 +10,13 @@ defineEmits(['new-course', 'pull-timetable', 'login', 'toggle-sidebar', 'feedbac
 const { theme, toggle } = useTheme()
 const importInput = ref(null)
 const searchInput = ref(null)
+const moreOpen = ref(false)
+
+// ⋯ 菜单动作执行后顺手收起
+async function onMore(fn) {
+  moreOpen.value = false
+  await fn()
+}
 
 async function onClock() {
   try {
@@ -74,18 +81,47 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <button class="btn" title="意见反馈/故障上报给开发者" @click="$emit('feedback')">📝 反馈</button>
         <template v-if="session.xh">
           <span class="chip user-chip" title="已登录：ehall 学号">👤 {{ session.xh }}</span>
-          <button class="btn" @click="onLogout">退出</button>
+          <!-- ⋯ 次级菜单：低频操作（拉课表/导入导出/退出）收纳，顶栏只留高频入口 -->
+          <div class="more-wrap">
+            <button
+              class="icon-btn"
+              :class="{ on: moreOpen }"
+              title="更多：拉取课表 / 备份 / 退出登录"
+              @click="moreOpen = !moreOpen">⋯</button>
+            <div v-if="moreOpen" class="more-menu" @mouseleave="moreOpen = false">
+              <button class="more-item" @click="onMore(() => $emit('pull-timetable'))">📅 拉取课表</button>
+              <button class="more-item" @click="onMore(exportData)">📤 导出备份</button>
+              <button class="more-item" @click="onMore(pickImport)">📥 导入备份</button>
+              <div class="more-sep"></div>
+              <button class="more-item more-danger" @click="onMore(onLogout)">🚪 退出登录</button>
+            </div>
+          </div>
         </template>
         <button v-else class="btn" title="用 ehall Cookie 登录，同步数据到云端" @click="$emit('login')">登录</button>
-        <!-- data-ops：低频数据操作，移动端（≤760px）从顶栏隐藏，入口移到抽屉「数据」区 -->
-        <span class="data-ops">
-          <button class="btn" title="导出全部数据为 JSON 备份" @click="exportData">导出</button>
-          <button class="btn" title="从 JSON 备份恢复" @click="pickImport">导入</button>
-        </span>
-        <button class="btn data-ops" title="从东南大学 ehall 拉取课表并导入" @click="$emit('pull-timetable')">拉取课表</button>
         <button class="btn primary" title="新建课程" @click="$emit('new-course')">＋ 新建课程</button>
       </div>
     </template>
     <input type="file" ref="importInput" accept=".json,application/json" hidden @change="onImportChange">
   </header>
 </template>
+
+<style scoped>
+.more-wrap { position: relative; display: inline-flex; }
+.more-btn.on { background: var(--accent-weak); color: var(--accent); }
+.more-menu {
+  position: absolute; top: 34px; right: -6px; z-index: 60;
+  min-width: 148px; padding: 5px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.more-item {
+  border: none; background: transparent; text-align: left;
+  padding: 8px 12px; border-radius: 8px;
+  font-size: 13px; color: var(--text); white-space: nowrap;
+  transition: background .12s;
+}
+.more-item:hover { background: var(--accent-weak); color: var(--accent); }
+.more-item.more-danger:hover { background: var(--danger-weak); color: var(--danger); }
+.more-sep { height: 1px; background: var(--line); margin: 4px 6px; }
+</style>

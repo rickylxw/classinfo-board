@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { store, courseById, toggleAssignment, deleteAssignment, toggleSynced, copySharedAssignment, archiveDone, archiveAssignment, archiveSynced, PERSONAL_ID, PERSONAL_COURSE } from '../store'
 import { ddlBadge, fmtDT, courseKeyOf } from '../utils'
+import { qqReady } from '../qqreader'
 import RichText from './RichText.vue'
 
 const emit = defineEmits(['new-assignment', 'edit-assignment'])
@@ -146,11 +147,21 @@ function openCourse(id) {
             <button v-if="p.kind !== 'synced'" class="icon-btn" title="删除" @click.stop="deleteAssignment(p.a.id)">🗑️</button>
           </div>
         </div>
-        <div v-if="!pending.length" class="empty">
+        <div v-if="!pending.length" class="empty empty-compact">
           <span class="big">🎉</span>
-          {{ statFilter === 'overdue' ? '没有逾期作业，保持住！' : statFilter === 'soon' ? '7 天内没有截止的作业' : store.courses.length ? '没有待办作业，好好休息！' : '还没有课程，点击右上角「新建课程」开始吧' }}
+          <span>{{ statFilter === 'overdue' ? '没有逾期作业，保持住！' : statFilter === 'soon' ? '7 天内没有截止的作业' : store.courses.length ? '没有待办作业，好好休息！' : '还没有课程，点击右上角「新建课程」开始吧' }}</span>
+          <div v-if="store.courses.length" class="empty-links">
+            <button class="btn sm" @click="store.view = { type: 'schedule', id: null, q: '' }">📅 去日程表</button>
+            <button class="btn sm" @click="store.view = { type: 'clh', id: null, q: '' }">🎓 课件助手</button>
+            <button v-if="qqReady" class="btn sm" @click="store.view = { type: 'messages', id: null, q: '' }">💬 群消息</button>
+          </div>
         </div>
       </TransitionGroup>
     </section>
   </div>
 </template>
+
+<style scoped>
+.empty-compact { padding: 16px 10px 4px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.empty-links { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+</style>

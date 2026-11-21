@@ -155,6 +155,12 @@ button, input, select, textarea, summary, a, label { touch-action: manipulation;
 }
 .cat-group { margin-top: 4px; }
 .cat-group .side-title { margin: 4px 0 2px; }
+/* 课程分组标题：左侧小色条 + 字距，13 门课的长列表扫视更快 */
+.cat-group > .side-title {
+  padding-left: 6px;
+  border-left: 3px solid var(--accent-line);
+  letter-spacing: .5px;
+}
 
 .nav-item {
   display: flex; align-items: center; gap: 10px;
@@ -206,6 +212,8 @@ button, input, select, textarea, summary, a, label { touch-action: manipulation;
 
 /* ---------- 主区 ---------- */
 .main { flex: 1; min-width: 0; padding: 20px 24px 48px; }
+/* 满高视图（群消息/课件助手）：收紧底部内边，消掉外层多余滚动（iframe 内已有自己的滚动） */
+.main:has(.mr-root), .main:has(.clh-page) { padding-bottom: 10px; }
 .main-inner { max-width: 1060px; margin: 0 auto; }
 
 .page-title { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 14px; }
@@ -254,6 +262,11 @@ button.stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); b
   background: var(--bg-soft); color: var(--muted);
   border: 1px solid transparent;
 }
+/* 次要信息 chip：描边弱化样式（课程页头部信息分层用） */
+.chip.ghost {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--line-strong);
+}
 .chip.cat { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
 .chip-btn { cursor: pointer; transition: all .15s; }
 .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -292,7 +305,8 @@ button.stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); b
   display: flex; flex-direction: column; gap: 8px; font-size: 13.5px;
 }
 .welcome-feats li {
-  background: var(--bg-soft); border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg-soft); border: 1px solid var(--line); border-left: 3px solid var(--accent-line);
+  border-radius: 10px;
   padding: 8px 12px;
 }
 .btn.lg { font-size: 15px; padding: 10px 26px; }
@@ -753,6 +767,8 @@ button.stat { color: var(--text); }
 .app-footer {
   display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: center;
   padding: 14px 16px 20px; font-size: 12px; color: var(--muted);
+  /* 右侧避让部署侧注入的 ICP 徽标（fixed 定位，约 260px 宽），避免文字重叠 */
+  padding-right: max(16px, 280px);
 }
 .app-footer a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
 .app-footer a:hover { color: var(--text); }
