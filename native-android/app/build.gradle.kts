@@ -1,8 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+// 正式签名：从 native-android/release-signing.properties 读取（gitignored，本地与 CI 各自生成，
+// 内容四行：storeFile / storePassword / keyAlias / keyPassword）。文件不存在时 release 不签名（本地降级）。
+val releaseSigning = Properties().apply {
+    val f = rootProject.file("release-signing.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -14,13 +23,24 @@ android {
         applicationId = "io.github.rickylxw.classinfoboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.9.0"
+        versionCode = 12
+        versionName = "1.0.0"
     }
 
+    signingConfigs {
+        if (releaseSigning.isNotEmpty()) {
+            create("release") {
+                storeFile = rootProject.file(releaseSigning["storeFile"] as String)
+                storePassword = releaseSigning["storePassword"] as String
+                keyAlias = releaseSigning["keyAlias"] as String
+                keyPassword = releaseSigning["keyPassword"] as String
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseSigning.isNotEmpty()) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

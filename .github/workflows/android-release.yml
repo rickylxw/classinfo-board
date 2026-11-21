@@ -1,0 +1,55 @@
+name: android-release
+
+# 推 native-v* 标签自动构建正式签名的安卓 APK 并发布 Release（也可手动触发）
+on:
+  push:
+    tags: ['native-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android SDK components
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Restore release signing
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > native-android/release.keystore
+          printf 'storeFile=release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > native-android/release-signing.properties
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Build release APK
+        run: |
+          cd native-android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Rename APK
+        run: |
+          cp native-android/app/build/outputs/apk/release/app-release.apk \
+             classinfo-board-${{ github.ref_name }}-release.apk
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: classinfo-board-${{ github.ref_name }}-release.apk
+          generate_release_notes: true

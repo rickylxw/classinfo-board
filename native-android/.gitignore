@@ -11,3 +11,5 @@ build.cmd
 # IDE
 .idea/
 *.iml
+# 正式签名配置(含密码,不入库)
+release-signing.properties
