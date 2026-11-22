@@ -52,6 +52,11 @@ object Prefs {
         get() = sp.getLong("lastApkDownloadId", -1L)
         set(v) = sp.edit().putLong("lastApkDownloadId", v).apply()
 
+    /** 更新包下载镜像：auto / board / github */
+    var downloadMirror: String
+        get() = sp.getString("downloadMirror", "auto") ?: "auto"
+        set(v) = sp.edit().putString("downloadMirror", v).apply()
+
     var lastApkDownloadTag: String?
         get() = sp.getString("lastApkDownloadTag", null)
         set(v) = if (v.isNullOrBlank()) sp.edit().remove("lastApkDownloadTag").apply()
