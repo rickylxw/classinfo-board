@@ -282,7 +282,8 @@ fun DashboardScreen(
             ) {
                 items(items, key = { it.id }) { it ->
                     AssignmentRow(
-                        it,
+                        modifier = Modifier.animateItem(),
+                        item = it,
                         enabled = !opBusy,
                         onOpen = if (it.courseId != "personal") { { onOpenCourse(it.courseId) } } else null,
                         showReq = showReqFor == it.id,
@@ -380,7 +381,8 @@ private fun EmptyState(icon: String, title: String, sub: String) {
 
 @Composable
 private fun AssignmentRow(
-    it: PendingItem,
+    modifier: Modifier = Modifier,
+    item: PendingItem,
     enabled: Boolean,
     onOpen: (() -> Unit)?,
     showReq: Boolean,
@@ -392,9 +394,9 @@ private fun AssignmentRow(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
-    val courseColor = runCatching { Color(android.graphics.Color.parseColor(it.color ?: "#6366F1")) }
+    val courseColor = runCatching { Color(android.graphics.Color.parseColor(item.color ?: "#6366F1")) }
         .getOrDefault(Color(0xFF6366F1))
-    val badge = ddlBadge(it.deadline, it.done)
+    val badge = ddlBadge(item.deadline, item.done)
     val badgeBg = when (badge.level) {
         2 -> MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
         1 -> Color(0xFFB45309).copy(alpha = 0.14f)
@@ -407,7 +409,9 @@ private fun AssignmentRow(
     }
 
     Card(
-        Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
@@ -421,7 +425,7 @@ private fun AssignmentRow(
                     .background(courseColor, RoundedCornerShape(2.dp))
             )
             Spacer(Modifier.width(12.dp))
-            IconButton(onClick = { onToggle(it) }, enabled = enabled, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = { onToggle(item) }, enabled = enabled, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Filled.CheckCircle, contentDescription = "标完成",
                     tint = MaterialTheme.colorScheme.outlineVariant,
@@ -435,13 +439,13 @@ private fun AssignmentRow(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        it.courseName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        item.courseName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                         color = courseColor,
                         modifier = Modifier
                             .background(courseColor.copy(alpha = 0.13f), RoundedCornerShape(999.dp))
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     )
-                    it.from?.let { from ->
+                    item.from?.let { from ->
                         Spacer(Modifier.width(6.dp))
                         Text(
                             "同步·$from", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary,
@@ -452,7 +456,7 @@ private fun AssignmentRow(
                     }
                 }
                 Text(
-                    it.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+                    item.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
                     modifier = Modifier.padding(top = 4.dp),
                     maxLines = 2, overflow = TextOverflow.Ellipsis
                 )
@@ -461,12 +465,12 @@ private fun AssignmentRow(
                         badge.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = badgeFg,
                         modifier = Modifier.background(badgeBg, RoundedCornerShape(999.dp)).padding(horizontal = 8.dp, vertical = 2.dp)
                     )
-                    val whenTxt = fmtDeadline(it.deadline)
+                    val whenTxt = fmtDeadline(item.deadline)
                     if (whenTxt.isNotBlank()) {
                         Spacer(Modifier.width(8.dp))
                         Text("📅 $whenTxt", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (!it.requirement.isNullOrBlank()) {
+                    if (!item.requirement.isNullOrBlank()) {
                         Spacer(Modifier.width(8.dp))
                         Text(
                             "作业要求 " + if (showReq) "▴" else "▾",
@@ -475,9 +479,9 @@ private fun AssignmentRow(
                         )
                     }
                 }
-                if (showReq && !it.requirement.isNullOrBlank()) {
+                if (showReq && !item.requirement.isNullOrBlank()) {
                     Text(
-                        it.requirement, fontSize = 12.sp, lineHeight = 17.sp,
+                        item.requirement, fontSize = 12.sp, lineHeight = 17.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .padding(top = 6.dp)
@@ -492,19 +496,19 @@ private fun AssignmentRow(
                     Icon(Icons.Filled.MoreVert, contentDescription = "更多")
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    if (it.from != null) {
+                    if (item.from != null) {
                         DropdownMenuItem(text = { Text("📋 复制为我的作业") }, onClick = {
                             menu = false
                             scope.launch {
-                                Repo.add(it.title, it.courseId, it.deadline, it.requirement ?: "")
+                                Repo.add(item.title, item.courseId, item.deadline, item.requirement ?: "")
                                 Toast.makeText(ctx, "已复制为我的作业", Toast.LENGTH_SHORT).show()
                             }
                         })
                     }
-                    DropdownMenuItem(text = { Text("📦 归档") }, onClick = { menu = false; onArchive(it) })
+                    DropdownMenuItem(text = { Text("📦 归档") }, onClick = { menu = false; onArchive(item) })
                     if (onDelete != null) {
                         DropdownMenuItem(text = { Text("🗑 删除", color = MaterialTheme.colorScheme.error) },
-                            onClick = { menu = false; onDelete(it) })
+                            onClick = { menu = false; onDelete(item) })
                     }
                 }
             }

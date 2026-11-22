@@ -239,6 +239,7 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
                     if (st == "archived") continue
                     item(key = "sync-" + sa.id) {
                         DetailAssignmentRow(
+                            modifier = Modifier.animateItem(),
                             title = sa.title, deadline = sa.deadline, requirement = sa.requirement,
                             done = st == "done", syncFrom = board.from ?: "班级同步",
                             showReq = showReqFor == sa.id,
@@ -400,6 +401,7 @@ fun downloadCourseFile(ctx: Context, id: String, name: String) {
 /** 单条作业行（课程详情版：含要求展开、归档/删除菜单；同步项无删除、可复制为我的作业） */
 @Composable
 private fun DetailAssignmentRow(
+    modifier: Modifier = Modifier,
     title: String,
     deadline: String?,
     requirement: String?,
@@ -424,7 +426,7 @@ private fun DetailAssignmentRow(
         1 -> Color(0xFFB45309)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(10.dp)) {
+    Card(modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(10.dp)) {
         Row(Modifier.padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Top) {
             IconButton(onClick = onToggleDone, modifier = Modifier.size(36.dp)) {
                 Icon(
