@@ -23,8 +23,8 @@ android {
         applicationId = "io.github.rickylxw.classinfoboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.3.0"
+        versionCode = 16
+        versionName = "1.4.0"
     }
 
     signingConfigs {
