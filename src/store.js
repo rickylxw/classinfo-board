@@ -222,10 +222,25 @@ function queueSyncPull() {
     notifySyncListeners()   // 管理台投稿审核等面板刷新
   }, 1000)
 }
+/* 同账号跨设备实时：其它设备（手机原生端/另一浏览器）改动账号数据时，
+ * 后端定向广播 data 事件 → 重拉 /data 并采用云端权威状态。
+ * 守卫：本机 ops 在途/排队时跳过（ops 响应本身携带权威快照，避免覆盖乐观更新） */
+let dataPullTimer = null
+function queueDataPull() {
+  if (!session.token || session.isAdmin) return
+  if (dataPullTimer) return
+  dataPullTimer = setTimeout(() => {
+    dataPullTimer = null
+    if (pumping || opQueue.length) return   // 在途：ops 响应稍后自带权威状态
+    api.fetchCloudData()
+      .then(cloud => adoptCanonical(cloud))
+      .catch(() => { /* 网络抖动静默，下个事件再试 */ })
+  }, 1000)
+}
 function startSyncStream() {
   if (syncStream || !session.token) return   // 用户与管理员会话均可挂（管理台实时刷新依赖）
   try {
-    syncStream = api.openSyncStream(queueSyncPull, session.token)
+    syncStream = api.openSyncStream(queueSyncPull, session.token, queueDataPull)
     syncStream.onopen = () => { streamFails = 0 }
     syncStream.onerror = () => {
       streamFails++
@@ -242,12 +257,13 @@ function stopSyncStream() {
   streamFails = 0
   if (syncPullTimer) { clearTimeout(syncPullTimer); syncPullTimer = null }
 }
-// 切回页面立即对齐一次（顺带重启被退避掐断的流）
+// 切回页面立即对齐一次（顺带重启被退避掐断的流）；用户会话顺带重拉账号数据
+// （手机原生端无 SSE，它在后台期间收到的改动靠这里的重拉兜底）
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && session.token) {
     startSyncStream()
     if (session.isAdmin) notifySyncListeners()
-    else fetchSyncs()
+    else { fetchSyncs(); queueDataPull() }
   }
 })
 

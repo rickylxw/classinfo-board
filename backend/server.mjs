@@ -384,6 +384,15 @@ function sseBroadcast() {
     try { c.res.write(frame) } catch (e) { sseClients.delete(c) }
   }
 }
+// 按账号定向广播：账号数据（/data 系端点）变更只发给同一账号的在线连接，
+// 前端收到后重拉 /data（同账号跨设备实时；发起端自己也收到，由前端 ops 在途守卫跳过）
+function sseBroadcastTo(xh, event = 'data') {
+  const frame = `event: ${event}\ndata: {"t": ${Date.now()}}\n\n`
+  for (const c of [...sseClients]) {
+    if (c.xh !== xh) continue
+    try { c.res.write(frame) } catch (e) { sseClients.delete(c) }
+  }
+}
 // 心跳 ≤25s：既保活也让代理不判定空闲断开；写失败即移除
 setInterval(() => {
   for (const c of [...sseClients]) {
@@ -445,7 +454,7 @@ async function saveShares() {
     console.error('[save] shares.json 保存失败：', e.message)
   }
   // 唯一广播点：所有共享板/投稿/负责人变更都经 saveShares 落盘；写盘失败不广播。
-  // 账号数据（/data、/data/ops）走 saveAccount，不经此处，不会误广播。
+  // 账号数据（/data 系端点）的跨设备广播在各自端点内用 sseBroadcastTo(定向同账号) 完成。
   if (persisted && sseClients.size) sseBroadcast()
 }
 const boardOf = key => (shares.boards[key] = shares.boards[key] || { assignments: [], files: [], pendingAssignments: [], pendingFiles: [], groups: [], pendingGroups: [], group: null, pendingGroup: null })
@@ -913,6 +922,7 @@ http.createServer(async (req, res) => {
           data: {
             tag: j.tag_name,
             apkUrl: apk ? apk.browser_download_url : '',
+            apkName: apk ? apk.name : '',
             notes: j.body || '',
             htmlUrl: j.html_url
           }
@@ -921,6 +931,42 @@ http.createServer(async (req, res) => {
       } catch (e) {
         if (appUpdateCache.data) return json(res, 200, appUpdateCache.data)
         return json(res, 502, { error: '更新源暂不可达，请稍后再试' })
+      }
+    }
+
+    /* APK 下载中转（公开）：服务端代理 GitHub Release 下载并落盘缓存——
+     * 客户端直连 github.com 常被网络重置，走板子域名则必然可达（服务器可达 GitHub）。
+     * 首次请求从 GitHub 拉取并缓存到 data/cache/appupdate/<name>，之后直接回缓存，速度稳定。 */
+    if (p === '/app-update/download' && req.method === 'GET') {
+      if (rateLimited('app-dl:' + clientIp(req), 10, 60 * 1000)) return json(res, 429, { error: '下载请求过于频繁，请稍后再试' })
+      const tag = String(url.searchParams.get('tag') || '').trim()
+      const name = String(url.searchParams.get('name') || '').trim()
+      if (!/^native-v[0-9A-Za-z.\-]+$/.test(tag) || !/^[0-9A-Za-z._\-]+\.apk$/.test(name)) {
+        return json(res, 400, { error: '参数不合法' })
+      }
+      const dir = path.join(DATA_DIR, 'cache', 'appupdate')
+      const fp = path.join(dir, name)
+      try {
+        if (!existsSync(fp)) {
+          await mkdir(dir, { recursive: true })
+          const gh = `https://github.com/rickylxw/classinfo-board/releases/download/${tag}/${encodeURIComponent(name)}`
+          const r = await fetch(gh, { headers: { 'User-Agent': 'classinfo-board' } })
+          if (!r.ok) throw new Error('GitHub HTTP ' + r.status)
+          const buf = Buffer.from(await r.arrayBuffer())
+          if (buf.length < 1024 * 1024) throw new Error('下载内容异常（过小）')
+          await writeFile(fp, buf)
+          console.log(`[app-update] 缓存 ${name}（${(buf.length / 1048576).toFixed(1)} MB）`)
+        }
+        const buf = await readFile(fp)
+        res.writeHead(200, {
+          'Content-Type': 'application/vnd.android.package-archive',
+          'Content-Length': buf.length,
+          'Content-Disposition': `attachment; filename="${name}"`,
+          'Cache-Control': 'public, max-age=3600'
+        })
+        return res.end(buf)
+      } catch (e) {
+        return json(res, 502, { error: '下载源不可达（' + e.message + '），请切换下载源重试' })
       }
     }
 
@@ -1320,6 +1366,7 @@ http.createServer(async (req, res) => {
       target.data = mergeAccountData(target.data, body)
       target.dataUpdatedAt = Date.now()
       await saveAccount(target)
+      sseBroadcastTo(s.xh, 'data')
       return json(res, 200, { ok: true, data: normalizeData(target.data), dataUpdatedAt: target.dataUpdatedAt })
     }
     /* 登录/换设备合并：本机独有条目并入云端（只增），云端已有条目一律不动 */
@@ -1329,6 +1376,7 @@ http.createServer(async (req, res) => {
       target.data = mergeAccountData(target.data, body, { addOnly: true })
       target.dataUpdatedAt = Date.now()
       await saveAccount(target)
+      sseBroadcastTo(s.xh, 'data')
       console.log(`[sync] ${s.xh} 登录合并：云端现为 ${target.data.courses.length} 门课 / ${target.data.assignments.length} 项作业 / ${target.data.files.length} 个文件`)
       return json(res, 200, { ok: true, data: normalizeData(target.data), dataUpdatedAt: target.dataUpdatedAt })
     }
@@ -1339,6 +1387,7 @@ http.createServer(async (req, res) => {
       target.data = applyRemovals(target.data, body)
       target.dataUpdatedAt = Date.now()
       await saveAccount(target)
+      sseBroadcastTo(s.xh, 'data')
       return json(res, 200, { ok: true, data: normalizeData(target.data), dataUpdatedAt: target.dataUpdatedAt })
     }
     /* 细粒度操作批次：客户端每次变动立即发送的 ops，按序应用后返回权威状态。
@@ -1369,6 +1418,7 @@ http.createServer(async (req, res) => {
       target.data = d
       target.dataUpdatedAt = Date.now()
       await saveAccount(target)
+      sseBroadcastTo(s.xh, 'data')
       return json(res, 200, { ok: true, data: normalizeData(d), dataUpdatedAt: target.dataUpdatedAt })
     }
 

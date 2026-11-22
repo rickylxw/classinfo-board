@@ -27,7 +27,10 @@ async function connect(base, token, { signal } = {}) {
       while ((i = buf.indexOf('\n\n')) >= 0) {
         const frame = buf.slice(0, i).trim()
         buf = buf.slice(i + 2)
-        push(frame === ': ka' ? 'ka' : frame.startsWith('event: sync') ? 'sync' : 'other:' + frame)
+        push(frame === ': ka' ? 'ka'
+          : frame.startsWith('event: sync') ? 'sync'
+          : frame.startsWith('event: data') ? 'data'
+          : 'other:' + frame)
       }
     }
     push('closed')
@@ -85,9 +88,11 @@ await withTestServer({
   ok(true, '两个用户会话各建立一条连接（多标签页多连接）')
 
   {
-    // 账号数据变更不应广播
+    // 账号数据变更：定向广播给同一账号（data 事件），异账号不收到，也不触发全局 sync
     await fetch(base + '/data/ops', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token('A') }, body: JSON.stringify({ ops: [{ op: 'upsert', coll: 'assignments', items: [{ id: 'ax1', courseId: 'cA', title: '个人作业' }] }] }) })
-    ok(!(await waitFor(ca, 'sync', 2000)), '账号数据变更（/data/ops）不触发广播')
+    ok(await waitFor(ca, 'data', 2000), 'A 的 ops 推送 → A 自己的连接收到 event: data（定向广播）')
+    ok(!(await waitFor(cb, 'data', 800)), '异账号 B 不收到 A 的 data 事件（按学号隔离）')
+    ok(!(await waitFor(ca, 'sync', 800)), '账号数据变更不触发全局 sync 广播（避免无关账号重拉）')
   }
 
   {

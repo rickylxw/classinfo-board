@@ -78,11 +78,13 @@ export const submitBoardFile = (key, name, blob) =>
 export const reviewBoardAssignment = (key, id, approve, patch = {}) => req('/board/assignment/review', { method: 'POST', body: { key, id, approve, ...patch } })
 export const reviewBoardFile = (key, id, approve) => req('/board/file/review', { method: 'POST', body: { key, id, approve } })
 export const fetchMySubmissions = key => req('/board/submissions?key=' + encodeURIComponent(key))
-/* 实时同步流（SSE）：后端 /api/events 广播共享板变更。EventSource 无法带
+/* 实时同步流（SSE）：后端 /api/events 广播。sync = 共享板变更（拉 /sync）；
+   data = 同账号其它设备的账号数据变更（拉 /data）。EventSource 无法带
    Authorization 头，约定用 ?token= 传会话（仅此端点接受 query token） */
-export function openSyncStream(onSync, token) {
+export function openSyncStream(onSync, token, onData) {
   const es = new EventSource('/api/events?token=' + encodeURIComponent(token))
   es.addEventListener('sync', onSync)
+  if (onData) es.addEventListener('data', onData)
   return es
 }
 export async function fetchBoardFileBlob(key, id) {
