@@ -5,8 +5,16 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.SystemClock
-import android.widget.RemoteViews
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Shader
+import android.graphics.Typeface
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -16,34 +24,65 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/* 常驻状态栏通知（音乐播放器式卡片）：下节课 + 实时倒计时（系统 Chronometer 控件自己走秒，
- * 不耗电不需要进程活着）+ 教学周 + 待办数。setOngoing 防误滑，Importance LOW 静默更新。
- * 内容数据来自 WidgetSync 快照；Reminders 闹钟与 App 内变化都会触发 updateIfEnabled。 */
+/* 常驻媒体胶囊（音乐播放器同款机制）：MediaSession + MediaStyle 通知。
+ * Android 14+/Pixel 会在状态栏顶部正中显示媒体胶囊（专辑图+波形），
+ * 其他机型显示为通知栏媒体卡片/锁屏播放器——都是系统级「正在播放」位。
+ * 内容 = 下节课 + 实时倒计时（Chronometer 系统控件自己走秒）+ 教学周 + 待办数。 */
 
 object StatusBar {
     const val CHANNEL = "status"
     const val NOTIF_ID = 3001
     const val ACTION_HIDE = "io.github.rickylxw.classinfoboard.STATUS_HIDE"
 
+    private var session: MediaSession? = null
+    private var artCache: Bitmap? = null
+    private val timeFmt = SimpleDateFormat("HH:mm", Locale.CHINA)
+
     fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
         if (nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL, "常驻课表卡片", NotificationManager.IMPORTANCE_LOW)
-            )   // LOW = 静默显示在通知栏，不打扰
+            )   // LOW = 静默显示，不打扰
         }
+    }
+
+    /** 专辑图：品牌渐变 + 📚（Canvas 现画，进程内缓存） */
+    private fun art(): Bitmap {
+        artCache?.let { return it }
+        val s = 256
+        val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(0f, 0f, s.toFloat(), s.toFloat(),
+                Color.rgb(0x54, 0x57, 0xE5), Color.rgb(0x42, 0x45, 0xCF), Shader.TileMode.CLAMP)
+        }
+        c.drawRect(0f, 0f, s.toFloat(), s.toFloat(), p)
+        p.colorFilter = null; p.shader = null; p.color = Color.WHITE
+        p.textSize = 120f; p.textAlign = Paint.Align.CENTER
+        val fm = p.fontMetrics
+        c.drawText("📚", s / 2f, s / 2f - (fm.ascent + fm.descent) / 2f, p)
+        artCache = bmp
+        return bmp
+    }
+
+    private fun mediaSession(ctx: Context): MediaSession {
+        session?.let { return it }
+        val s = MediaSession(ctx, "ClassinfoStatusBar")
+        s.setActive(true)
+        session = s
+        return s
     }
 
     /** 按 Prefs.statusBarOn 显示/隐藏；数据变化处直接调这个 */
     fun updateIfEnabled(ctx: Context) {
-        if (Prefs.statusBarOn && Prefs.loggedIn) {
-            if (ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS)
-                == android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) {
-                ensureChannel(ctx)
-                show(ctx)
-                return
-            }
+        if (Prefs.statusBarOn && Prefs.loggedIn &&
+            ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS)
+            == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            ensureChannel(ctx)
+            show(ctx)
+            return
         }
         hide(ctx)
     }
@@ -51,29 +90,9 @@ object StatusBar {
     private fun show(ctx: Context) {
         val snap = WidgetSync.load(ctx)
         val now = System.currentTimeMillis()
+        val next = snap.today.firstOrNull { it.at > now }
         val week = snap.weekNo?.let { "第 $it 教学周" } ?: ""
         val pending = "📝 待办 ${snap.pending} 项"
-
-        val views = RemoteViews(ctx.packageName, R.layout.notif_status_bar)
-        val next = snap.today.firstOrNull { it.at > now }
-        if (next != null) {
-            views.setTextViewText(R.id.n_title, "下节课：" + next.name)
-            val room = if (next.room.isNotBlank()) " @" + next.room else ""
-            views.setTextViewText(R.id.n_meta, "第${next.section}节 · " + fmtTime(next.at) + room + (if (week.isNotBlank()) " · $week" else ""))
-            // 实时倒计时：Chronometer 系统控件自己走秒，进程不活也走
-            views.setViewVisibility(R.id.n_countdown, android.view.View.VISIBLE)
-            views.setChronometerCountDown(R.id.n_countdown, true)
-            views.setChronometer(R.id.n_countdown, SystemClock.elapsedRealtime() + (next.at - now), null, true)
-            views.setTextViewText(R.id.n_tail, pending)
-        } else {
-            views.setTextViewText(
-                R.id.n_title,
-                if (snap.today.isEmpty()) "今天没有课" else "今日课程已结束 · 共 ${snap.today.size} 节"
-            )
-            views.setViewVisibility(R.id.n_countdown, android.view.View.GONE)
-            views.setTextViewText(R.id.n_meta, week.ifBlank { "课程信息板" })
-            views.setTextViewText(R.id.n_tail, pending)
-        }
 
         val open = PendingIntent.getActivity(
             ctx, 0, Intent(ctx, MainActivity::class.java),
@@ -84,26 +103,69 @@ object StatusBar {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val n = NotificationCompat.Builder(ctx, CHANNEL)
+        val b = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setCustomContentView(views)
-            .setCustomBigContentView(views)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open)
-            .addAction(0, "打开应用", open)
-            .addAction(0, "收起卡片", hide)
-            .build()
 
-        runCatching { NotificationManagerCompat.from(ctx).notify(NOTIF_ID, n) }
+        if (next != null) {
+            // 有下节课：进入「正在播放」媒体形态（顶部胶囊/媒体卡片/锁屏播放器）
+            val ms = mediaSession(ctx)
+            val room = if (next.room.isNotBlank()) " @${next.room}" else ""
+            ms.setMetadata(
+                MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, "下节课：" + next.name)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST,
+                        "第${next.section}节 · " + timeFmt.format(Date(next.at)) + room)
+                    .putString(MediaMetadata.METADATA_KEY_ALBUM, week.ifBlank { "课程信息板" })
+                    .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, art())
+                    .build()
+            )
+            ms.setPlaybackState(
+                PlaybackState.Builder()
+                    .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_STOP)
+                    .setState(PlaybackState.STATE_PLAYING, 0, 1f)
+                    .build()
+            )
+            b.setContentTitle("下节课：" + next.name)
+            b.setContentText("第${next.section}节 · " + timeFmt.format(Date(next.at)) + room)
+            b.setSubText(pending)
+            // 实时倒计时（系统 Chronometer 走秒，通知自己倒数到上课）
+            b.setUsesChronometer(true)
+            b.setChronometerCountDown(true)
+            b.setWhen(next.at)
+            b.setStyle(
+                androidx.media.app.NotificationCompat.MediaStyle()
+                    .setMediaSession(android.support.v4.media.session.MediaSessionCompat.Token.fromToken(ms.sessionToken))
+                    .setShowActionsInCompactView(0)
+            )
+            b.addAction(0, "打开应用", open)
+            b.addAction(0, "收起卡片", hide)
+        } else {
+            // 无下节课：结束播放态（胶囊消失），退回普通常驻卡
+            session?.setPlaybackState(
+                PlaybackState.Builder()
+                    .setActions(PlaybackState.ACTION_STOP)
+                    .setState(PlaybackState.STATE_STOPPED, 0, 1f)
+                    .build()
+            )
+            b.setContentTitle(
+                if (snap.today.isEmpty()) "今天没有课" else "今日课程已结束 · 共 ${snap.today.size} 节"
+            )
+            b.setContentText(listOf(week, pending).filter { it.isNotBlank() }.joinToString(" · "))
+            b.addAction(0, "打开应用", open)
+            b.addAction(0, "收起卡片", hide)
+        }
+
+        runCatching { NotificationManagerCompat.from(ctx).notify(NOTIF_ID, b.build()) }
     }
 
     fun hide(ctx: Context) {
         NotificationManagerCompat.from(ctx).cancel(NOTIF_ID)
+        session?.setActive(false)
+        session?.release()
+        session = null
     }
-
-    private fun fmtTime(epochMs: Long): String =
-        SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(epochMs))
 }

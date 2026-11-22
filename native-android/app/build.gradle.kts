@@ -23,8 +23,8 @@ android {
         applicationId = "io.github.rickylxw.classinfoboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.0.0"
+        versionCode = 13
+        versionName = "1.1.0"
     }
 
     signingConfigs {
@@ -69,6 +69,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
     implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.media:media:1.7.0")   // NotificationCompat.MediaStyle（媒体胶囊/媒体卡片）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
