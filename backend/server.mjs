@@ -901,70 +901,83 @@ http.createServer(async (req, res) => {
       return json(res, 404, { error: 'not found' })
     }
 
-    /* 应用更新检查（公开，免登录）：服务端中转 GitHub Releases API。
+    /* 应用更新（公开，免登录）：服务端中转 GitHub Releases。
      * 部分客户端网络直连 api.github.com 会被重置，但板子域名必然可达——以板子为跳板最稳。
-     * 内存缓存 10 分钟；GitHub 抖动时回退上次缓存。 */
+     * 元数据内存缓存 10 分钟，GitHub 抖动时回退上次缓存；APK 落盘缓存到
+     * data/cache/appupdate/，首次从 GitHub 拉取，之后直接回缓存。 */
     let appUpdateCache = { at: 0, data: null }
-    if (p === '/app-update/latest' && req.method === 'GET') {
-      if (rateLimited('app-update:' + clientIp(req), 30, 60 * 1000)) return json(res, 429, { error: 'too frequent' })
-      if (Date.now() - appUpdateCache.at < 10 * 60 * 1000 && appUpdateCache.data) {
-        return json(res, 200, appUpdateCache.data)
-      }
-      try {
-        const r = await fetch('https://api.github.com/repos/rickylxw/classinfo-board/releases/latest', {
-          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'classinfo-board' }
-        })
-        if (!r.ok) throw new Error('HTTP ' + r.status)
-        const j = await r.json()
-        const apk = (j.assets || []).find(a => /\.apk$/.test(a.name))
-        appUpdateCache = {
-          at: Date.now(),
-          data: {
-            tag: j.tag_name,
-            apkUrl: apk ? apk.browser_download_url : '',
-            apkName: apk ? apk.name : '',
-            notes: j.body || '',
-            htmlUrl: j.html_url
-          }
+    async function ensureAppUpdateData() {
+      if (Date.now() - appUpdateCache.at < 10 * 60 * 1000 && appUpdateCache.data) return appUpdateCache.data
+      const r = await fetch('https://api.github.com/repos/rickylxw/classinfo-board/releases/latest', {
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'classinfo-board' }
+      })
+      if (!r.ok) throw new Error('GitHub HTTP ' + r.status)
+      const j = await r.json()
+      const apk = (j.assets || []).find(a => /\.apk$/.test(a.name))
+      appUpdateCache = {
+        at: Date.now(),
+        data: {
+          tag: j.tag_name,
+          apkUrl: apk ? apk.browser_download_url : '',
+          apkName: apk ? apk.name : '',
+          notes: j.body || '',
+          htmlUrl: j.html_url
         }
-        return json(res, 200, appUpdateCache.data)
-      } catch (e) {
-        if (appUpdateCache.data) return json(res, 200, appUpdateCache.data)
-        return json(res, 502, { error: '更新源暂不可达，请稍后再试' })
       }
+      return appUpdateCache.data
     }
-
-    /* APK 下载中转（公开）：服务端代理 GitHub Release 下载并落盘缓存——
-     * 客户端直连 github.com 常被网络重置，走板子域名则必然可达（服务器可达 GitHub）。
-     * 首次请求从 GitHub 拉取并缓存到 data/cache/appupdate/<name>，之后直接回缓存，速度稳定。 */
-    if (p === '/app-update/download' && req.method === 'GET') {
-      if (rateLimited('app-dl:' + clientIp(req), 10, 60 * 1000)) return json(res, 429, { error: '下载请求过于频繁，请稍后再试' })
-      const tag = String(url.searchParams.get('tag') || '').trim()
-      const name = String(url.searchParams.get('name') || '').trim()
+    async function serveUpdateApk(res, tag, name) {
       if (!/^native-v[0-9A-Za-z.\-]+$/.test(tag) || !/^[0-9A-Za-z._\-]+\.apk$/.test(name)) {
         return json(res, 400, { error: '参数不合法' })
       }
       const dir = path.join(DATA_DIR, 'cache', 'appupdate')
       const fp = path.join(dir, name)
+      if (!existsSync(fp)) {
+        await mkdir(dir, { recursive: true })
+        const gh = `https://github.com/rickylxw/classinfo-board/releases/download/${tag}/${encodeURIComponent(name)}`
+        const r = await fetch(gh, { headers: { 'User-Agent': 'classinfo-board' } })
+        if (!r.ok) throw new Error('GitHub HTTP ' + r.status)
+        const buf = Buffer.from(await r.arrayBuffer())
+        if (buf.length < 1024 * 1024) throw new Error('下载内容异常（过小）')
+        await writeFile(fp, buf)
+        console.log(`[app-update] 缓存 ${name}（${(buf.length / 1048576).toFixed(1)} MB）`)
+      }
+      const buf = await readFile(fp)
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Length': buf.length,
+        'Content-Disposition': `attachment; filename="${name}"`,
+        'Cache-Control': 'public, max-age=3600'
+      })
+      res.end(buf)
+    }
+    if (p === '/app-update/latest' && req.method === 'GET') {
+      if (rateLimited('app-update:' + clientIp(req), 30, 60 * 1000)) return json(res, 429, { error: 'too frequent' })
       try {
-        if (!existsSync(fp)) {
-          await mkdir(dir, { recursive: true })
-          const gh = `https://github.com/rickylxw/classinfo-board/releases/download/${tag}/${encodeURIComponent(name)}`
-          const r = await fetch(gh, { headers: { 'User-Agent': 'classinfo-board' } })
-          if (!r.ok) throw new Error('GitHub HTTP ' + r.status)
-          const buf = Buffer.from(await r.arrayBuffer())
-          if (buf.length < 1024 * 1024) throw new Error('下载内容异常（过小）')
-          await writeFile(fp, buf)
-          console.log(`[app-update] 缓存 ${name}（${(buf.length / 1048576).toFixed(1)} MB）`)
-        }
-        const buf = await readFile(fp)
-        res.writeHead(200, {
-          'Content-Type': 'application/vnd.android.package-archive',
-          'Content-Length': buf.length,
-          'Content-Disposition': `attachment; filename="${name}"`,
-          'Cache-Control': 'public, max-age=3600'
-        })
-        return res.end(buf)
+        const data = await ensureAppUpdateData()
+        return json(res, 200, data)
+      } catch (e) {
+        if (appUpdateCache.data) return json(res, 200, appUpdateCache.data)
+        return json(res, 502, { error: '更新源暂不可达，请稍后再试' })
+      }
+    }
+    /* 最新版 APK 直链：网站页脚「📱 安卓 App」与此地址，始终指向最新 Release（浏览器直接下载） */
+    if (p === '/app-update/apk' && req.method === 'GET') {
+      if (rateLimited('app-dl:' + clientIp(req), 10, 60 * 1000)) return json(res, 429, { error: '下载请求过于频繁，请稍后再试' })
+      try {
+        const data = await ensureAppUpdateData().catch(() => appUpdateCache.data)
+        if (!data || !data.tag || !data.apkName) return json(res, 502, { error: '暂无可下载的安装包' })
+        return await serveUpdateApk(res, data.tag, data.apkName)
+      } catch (e) {
+        return json(res, 502, { error: '下载源不可达（' + e.message + '），请稍后再试' })
+      }
+    }
+    if (p === '/app-update/download' && req.method === 'GET') {
+      if (rateLimited('app-dl:' + clientIp(req), 10, 60 * 1000)) return json(res, 429, { error: '下载请求过于频繁，请稍后再试' })
+      const tag = String(url.searchParams.get('tag') || '').trim()
+      const name = String(url.searchParams.get('name') || '').trim()
+      try {
+        return await serveUpdateApk(res, tag, name)
       } catch (e) {
         return json(res, 502, { error: '下载源不可达（' + e.message + '），请切换下载源重试' })
       }

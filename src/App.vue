@@ -118,6 +118,9 @@ function openSubmitAssignmentDialog(courseKey) {
         东南大学 ehall Cookie 验证登录，可设置应用密码免 Cookie 进入；<br>
         未登录状态为只读预览，不提供数据修改。
       </p>
+      <p style="font-size:12px;margin-top:8px;">
+        📱 安卓手机可 <a href="/api/app-update/apk" download style="color:var(--accent);font-weight:600;">直接下载 App</a>（正式签名，应用内自动更新）
+      </p>
     </div>
   </div>
 
@@ -172,6 +175,7 @@ function openSubmitAssignmentDialog(courseKey) {
     <span>
       © {{ year }} rickylxw ·
       <a href="https://github.com/rickylxw/classinfo-board" target="_blank" rel="noopener">GitHub 仓库</a> ·
+      <a href="/api/app-update/apk" download title="下载最新安卓安装包（走板子服务器，国内网络友好）">📱 安卓 App</a> ·
       <a href="https://github.com/rickylxw/classinfo-board/blob/main/LICENSE" target="_blank" rel="noopener">GPLv3</a>
     </span>
   </footer>
