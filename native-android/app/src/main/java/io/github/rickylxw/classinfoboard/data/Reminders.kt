@@ -44,13 +44,18 @@ object Reminders {
             NotificationManagerCompat.from(ctx).areNotificationsEnabled()
 
     fun scheduleAlarm(ctx: Context) {
+        scheduleAlarmAt(ctx, System.currentTimeMillis() + 30 * 60_000L)
+    }
+
+    /** 定点检查（倒计时到期后精确刷新媒体胶囊/小组件；与 30 分钟循环闹钟共用同一 PendingIntent 槽） */
+    fun scheduleAlarmAt(ctx: Context, triggerAt: Long) {
         val am = ctx.getSystemService(AlarmManager::class.java) ?: return
         val pi = PendingIntent.getBroadcast(
             ctx, ALARM_RC, Intent(ctx, io.github.rickylxw.classinfoboard.ReminderReceiver::class.java)
                 .setAction(ACTION_CHECK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        am.setAndAllowWhileIdle(AlarmManager.RTC, System.currentTimeMillis() + 30 * 60_000L, pi)
+        am.setAndAllowWhileIdle(AlarmManager.RTC, triggerAt, pi)
     }
 
     fun cancelAlarm(ctx: Context) {

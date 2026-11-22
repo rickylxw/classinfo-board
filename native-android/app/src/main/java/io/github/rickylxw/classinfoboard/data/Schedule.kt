@@ -111,7 +111,7 @@ fun nextClassInfo(courses: List<Course>, semStart: String?, now: LocalDateTime =
     return best
 }
 
-data class ClassInfo(val name: String, val room: String, val at: LocalDateTime, val section: Int, val color: String?)
+data class ClassInfo(val name: String, val room: String, val at: LocalDateTime, val section: Int, val color: String?, val endAt: LocalDateTime? = null)
 
 /** 一周课块：某教学周里某门课的某时段 */
 data class WeekSlot(val course: Course, val slot: TimeSlot)
@@ -128,7 +128,7 @@ fun weekSlots(courses: List<Course>, week: Int?): List<WeekSlot> {
     return out
 }
 
-/** 今天全部课程（按开始时间排序，含已开始的；下节课/小组件用） */
+/** 今天全部课程（按开始时间排序，含已开始的；下节课/小组件/媒体胶囊用，endAt=下课时刻） */
 fun todayClasses(courses: List<Course>, semStart: String?, now: LocalDateTime): List<ClassInfo> {
     if (semStart.isNullOrBlank()) return emptyList()
     val week = weekNumberOf(now.toLocalDate(), semStart) ?: return emptyList()
@@ -138,7 +138,14 @@ fun todayClasses(courses: List<Course>, semStart: String?, now: LocalDateTime): 
         for (t in parseCourseTimes(c)) {
             if (t.weekday != weekday || !t.weeks.has(week)) continue
             val hm = CLASS_TIMES[t.start] ?: continue
-            out.add(ClassInfo(c.name, t.room, now.toLocalDate().atTime(java.time.LocalTime.parse(hm.first)), t.start, c.color))
+            val endHm = CLASS_TIMES[t.end]?.second ?: continue
+            out.add(
+                ClassInfo(
+                    c.name, t.room,
+                    now.toLocalDate().atTime(java.time.LocalTime.parse(hm.first)), t.start, c.color,
+                    now.toLocalDate().atTime(java.time.LocalTime.parse(endHm))
+                )
+            )
         }
     }
     return out.sortedBy { it.at }

@@ -37,6 +37,7 @@ object StatusBar {
     private var session: MediaSession? = null
     private var artCache: Bitmap? = null
     private val timeFmt = SimpleDateFormat("HH:mm", Locale.CHINA)
+    private val ddlFmt = SimpleDateFormat("M/d HH:mm", Locale.CHINA)
 
     fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
@@ -90,7 +91,10 @@ object StatusBar {
     private fun show(ctx: Context) {
         val snap = WidgetSync.load(ctx)
         val now = System.currentTimeMillis()
+        // 三级「播放态」：正在上课 > 下节课 > 最近 DDL；都没有才退回普通常驻卡
+        val inProgress = snap.today.firstOrNull { it.end > 0 && it.at <= now && it.end > now }
         val next = snap.today.firstOrNull { it.at > now }
+        val ddl = snap.deadlines.firstOrNull { it.at > now }
         val week = snap.weekNo?.let { "第 $it 教学周" } ?: ""
         val pending = "📝 待办 ${snap.pending} 项"
 
@@ -110,16 +114,15 @@ object StatusBar {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open)
 
-        if (next != null) {
-            // 有下节课：进入「正在播放」媒体形态（顶部胶囊/媒体卡片/锁屏播放器）
+        var refreshAt = now + 30 * 60_000L
+
+        fun enterPlaying(title: String, meta: String, album: String, countdownTo: Long) {
             val ms = mediaSession(ctx)
-            val room = if (next.room.isNotBlank()) " @${next.room}" else ""
             ms.setMetadata(
                 MediaMetadata.Builder()
-                    .putString(MediaMetadata.METADATA_KEY_TITLE, "下节课：" + next.name)
-                    .putString(MediaMetadata.METADATA_KEY_ARTIST,
-                        "第${next.section}节 · " + timeFmt.format(Date(next.at)) + room)
-                    .putString(MediaMetadata.METADATA_KEY_ALBUM, week.ifBlank { "课程信息板" })
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, meta)
+                    .putString(MediaMetadata.METADATA_KEY_ALBUM, album)
                     .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, art())
                     .build()
             )
@@ -129,13 +132,13 @@ object StatusBar {
                     .setState(PlaybackState.STATE_PLAYING, 0, 1f)
                     .build()
             )
-            b.setContentTitle("下节课：" + next.name)
-            b.setContentText("第${next.section}节 · " + timeFmt.format(Date(next.at)) + room)
+            b.setContentTitle(title)
+            b.setContentText(meta)
             b.setSubText(pending)
-            // 实时倒计时（系统 Chronometer 走秒，通知自己倒数到上课）
+            // 实时倒计时（系统 Chronometer 走秒，通知自己倒数到目标时刻）
             b.setUsesChronometer(true)
             b.setChronometerCountDown(true)
-            b.setWhen(next.at)
+            b.setWhen(countdownTo)
             b.setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
                     .setMediaSession(android.support.v4.media.session.MediaSessionCompat.Token.fromToken(ms.sessionToken))
@@ -143,23 +146,62 @@ object StatusBar {
             )
             b.addAction(0, "打开应用", open)
             b.addAction(0, "收起卡片", hide)
-        } else {
-            // 无下节课：结束播放态（胶囊消失），退回普通常驻卡
+        }
+
+        fun exitPlaying(title: String, text: String) {
             session?.setPlaybackState(
                 PlaybackState.Builder()
                     .setActions(PlaybackState.ACTION_STOP)
                     .setState(PlaybackState.STATE_STOPPED, 0, 1f)
                     .build()
             )
-            b.setContentTitle(
-                if (snap.today.isEmpty()) "今天没有课" else "今日课程已结束 · 共 ${snap.today.size} 节"
-            )
-            b.setContentText(listOf(week, pending).filter { it.isNotBlank() }.joinToString(" · "))
+            b.setContentTitle(title)
+            b.setContentText(text)
             b.addAction(0, "打开应用", open)
             b.addAction(0, "收起卡片", hide)
         }
 
+        when {
+            inProgress != null -> {
+                val room = if (inProgress.room.isNotBlank()) " @${inProgress.room}" else ""
+                enterPlaying(
+                    "正在上：" + inProgress.name,
+                    "第${inProgress.section}节 · 到 " + timeFmt.format(Date(inProgress.end)) + room,
+                    week.ifBlank { "课程信息板" },
+                    inProgress.end
+                )
+                refreshAt = inProgress.end + 60_000   // 下课后立刻换卡（下一节/DDL/退出）
+            }
+            next != null -> {
+                val room = if (next.room.isNotBlank()) " @${next.room}" else ""
+                enterPlaying(
+                    "下节课：" + next.name,
+                    "第${next.section}节 · " + timeFmt.format(Date(next.at)) + room,
+                    week.ifBlank { "课程信息板" },
+                    next.at
+                )
+                refreshAt = next.at + 60_000          // 上课后立刻切「正在上」
+            }
+            ddl != null -> {
+                enterPlaying(
+                    "⏰ DDL：" + ddl.title,
+                    ddl.course + " · 截止 " + ddlFmt.format(Date(ddl.at)),
+                    week.ifBlank { "课程信息板" },
+                    ddl.at
+                )
+                refreshAt = ddl.at + 60_000           // 到期后立刻切下一项/退出
+            }
+            else -> {
+                exitPlaying(
+                    if (snap.today.isEmpty()) "今天没有课" else "今日课程已结束 · 共 ${snap.today.size} 节",
+                    listOf(week, pending).filter { it.isNotBlank() }.joinToString(" · ")
+                )
+            }
+        }
+
         runCatching { NotificationManagerCompat.from(ctx).notify(NOTIF_ID, b.build()) }
+        // 倒计时结束后定点刷新（下一节/DDL/退出播放态），不用干等 30 分钟兜底
+        Reminders.scheduleAlarmAt(ctx, refreshAt)
     }
 
     fun hide(ctx: Context) {

@@ -16,8 +16,9 @@ import java.time.ZoneId
 data class WidgetTodayClass(
     val name: String,
     val room: String = "",
-    val at: Long,          // epoch millis
-    val section: Int
+    val at: Long,          // epoch millis（上课）
+    val section: Int,
+    val end: Long = 0      // epoch millis（下课；0=未知，旧快照兼容）
 )
 
 @Serializable
@@ -59,7 +60,8 @@ object WidgetSync {
                 WidgetTodayClass(
                     c.name, c.room,
                     c.at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
-                    c.section
+                    c.section,
+                    c.endAt?.atZone(ZoneId.systemDefault())?.toInstant()?.toEpochMilli() ?: 0L
                 )
             },
             deadlines = dls,
