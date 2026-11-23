@@ -98,6 +98,10 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
             shareInfo = runCatching { Api.shareStatus(course.name, course.teacher ?: "") }.getOrNull()
         }
     }
+    // 负责人课：/sync 不下发自己的板 → 单独拉取负责人共享板（教学群/共享附件卡片用）
+    LaunchedEffect(isOwner, key) {
+        if (isOwner && key != null) Repo.loadBoard(key)
+    }
     val filePick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && key != null) scope.launch {
             try {
@@ -295,12 +299,16 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
             }
 
             // ---------- 教学群 ----------
+            // 负责人课：/sync 不下发自己的板（后端 syncForMe 排除 owner）→ 读负责人共享板数据
             if (course != null) {
                 item {
                     Text("👥 教学群", fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(top = 18.dp, bottom = 6.dp))
                 }
-                val groups = board?.groups.orEmpty()
+                val groups = when {
+                    isOwner && key != null -> Repo.boards[key]?.groups ?: board?.groups.orEmpty()
+                    else -> board?.groups.orEmpty()
+                }
                 if (groups.isEmpty()) {
                     item { Text("本课暂无共享教学群", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
