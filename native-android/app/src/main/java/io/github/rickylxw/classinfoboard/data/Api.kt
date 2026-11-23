@@ -106,6 +106,14 @@ object Api {
         return json.decodeFromString<OkResp>(exec("/feedback", "POST", body)).ok
     }
 
+    /** 删除云端文件本体（DELETE /files/:id） */
+    /** 删除云端文件本体（DELETE /files/:id） */
+    suspend fun deleteCloudFile(id: String) {
+        exec("/files/" + id, "DELETE")
+    }
+
+    /* 搜索：原生端本地过滤（courses/assignments 已在 Repo 内存中），无需后端端点 */
+
     /* 投稿作业到共享板（成员提交，经负责人/管理员审核后同步全班） */
     suspend fun submitBoardAssignment(key: String, title: String, deadline: String, requirement: String): Boolean {
         val body = buildJsonObject {

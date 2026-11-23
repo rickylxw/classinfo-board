@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -37,6 +38,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -88,6 +90,7 @@ fun DashboardScreen(
     var confirmDelete by remember { mutableStateOf<PendingItem?>(null) }
     var statFilter by rememberSaveable { mutableStateOf("") }   // "" | overdue | soon
     var showReqFor by remember { mutableStateOf<String?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         Repo.ensureLoaded()
@@ -166,7 +169,13 @@ fun DashboardScreen(
             return@Column
         }
 
-        val items0 = pendingItems(d, Repo.syncMap)
+        // 搜索过滤（课程 chips + 待办列表本地过滤）
+        val q = searchQuery.trim().lowercase()
+        val qMatch = { varargs: List<String?> -> q.isEmpty() || varargs.any { s -> s?.lowercase()?.contains(q) == true } }
+        val courses = d.courses.filter { qMatch(listOf(it.name, it.teacher, it.category, it.semester)) }
+        val items0 = pendingItems(d, Repo.syncMap).filter { p ->
+            qMatch(listOf(p.title, p.courseName, p.requirement))
+        }
         val nowMs = System.currentTimeMillis()
         val items = when (statFilter) {
             "overdue" -> items0.filter { p ->
@@ -185,6 +194,19 @@ fun DashboardScreen(
         }
         val st = stats(d, Repo.syncMap)
         val dark = isAppDark()
+
+        // 搜索框
+        OutlinedTextField(
+            value = searchQuery, onValueChange = { searchQuery = it },
+            placeholder = { Text("搜索课程 / 作业 / 要求…") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) TextButton(onClick = { searchQuery = "" },
+                    contentPadding = PaddingValues(4.dp)) { Text("✕") }
+            },
+            singleLine = true, shape = RoundedCornerShape(999.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
 
         // 统计 2×2（可点筛选）
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -227,7 +249,7 @@ fun DashboardScreen(
                 contentPadding = PaddingValues(16.dp, 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(d.courses, key = { it.id }) { c ->
+                items(courses, key = { it.id }) { c ->
                     Surface(
                         onClick = { onOpenCourse(c.id) },
                         shape = RoundedCornerShape(999.dp),

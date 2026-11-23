@@ -78,6 +78,8 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
     var opBusy by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
     var showSubmit by remember { mutableStateOf(false) }
+    var showEditCourse by remember { mutableStateOf(false) }
+    var confirmDeleteCourse by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<Assignment?>(null) }
     var showReqFor by remember { mutableStateOf<String?>(null) }
 
@@ -159,6 +161,17 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
                                 Text(meta.joinToString(" · "), fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 4.dp))
+                            }
+                            Row(Modifier.padding(top = 8.dp)) {
+                                TextButton(
+                                    onClick = { showEditCourse = true }, enabled = !opBusy,
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                ) { Text("✏️ 编辑课程", fontSize = 12.sp) }
+                                Spacer(Modifier.width(10.dp))
+                                TextButton(
+                                    onClick = { confirmDeleteCourse = true }, enabled = !opBusy,
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                ) { Text("🗑 删除课程", fontSize = 12.sp, color = MaterialTheme.colorScheme.error) }
                             }
                             // 负责人状态芯片 / 申请入口
                             if (!Repo.adminMode) {
@@ -373,6 +386,26 @@ fun CourseDetailScreen(courseId: String, pad: PaddingValues, onBack: () -> Unit,
         }
         if (showSubmit && key != null) {
             SubmitBoardDialog(courseKey = key, courseName = course?.name ?: "", onDismiss = { showSubmit = false })
+        }
+        if (showEditCourse) {
+            CourseDialog(existing = course, onDismiss = { showEditCourse = false })
+        }
+        if (confirmDeleteCourse) {
+            AlertDialog(
+                onDismissRequest = { confirmDeleteCourse = false },
+                title = { Text("删除课程") },
+                text = { Text("删除「${course?.name ?: ""}」？\n将同时删除该课程的全部作业与文件并同步云端，不可恢复。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDeleteCourse = false
+                        run {
+                            Repo.deleteCourse(courseId)
+                            onBack()
+                        }
+                    }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton(onClick = { confirmDeleteCourse = false }) { Text("取消") } }
+            )
         }
         // 错误统一浮层（Repo.error 已在仪表盘展示，这里仅操作失败 Toast）
         val errSnap = Repo.error

@@ -84,6 +84,43 @@ object Repo {
 
     fun uid(): String = java.util.UUID.randomUUID().toString().replace("-", "").take(12)
 
+    /** 新建/编辑课程（对齐 web upsertCourse） */
+    suspend fun upsertCourse(c: Course) {
+        mutate { it.copy(courses = it.courses.map { x -> if (x.id == c.id) c else x }.let { list -> if (c.id in list.map { x -> x.id }) list else list + c }) }
+        pushOps(listOf(upsertCourseOp(c)))
+    }
+
+    /** 删除课程：级联删该课程的作业与文件（对齐 web deleteCourse：显式 id 白名单 + 云端文件删除） */
+    suspend fun deleteCourse(id: String) {
+        val removedA = data?.assignments?.filter { it.courseId == id }?.map { it.id } ?: emptyList()
+        val removedF = data?.files?.filter { it.courseId == id } ?: emptyList()
+        mutate {
+            it.copy(
+                courses = it.courses.filterNot { x -> x.id == id },
+                assignments = it.assignments.filterNot { x -> x.courseId == id },
+                files = it.files.filterNot { x -> x.courseId == id }
+            )
+        }
+        pendingIds.add(id)
+        pendingIds.addAll(removedA)
+        pendingIds.addAll(removedF.map { it.id })
+        for (f in removedF) {
+            if (f.kind == "blob") runCatching { Api.deleteCloudFile(f.id) }
+        }
+        pushOps(listOf(buildJsonObject {
+            put("op", "delete"); put("coll", "courses"); put("ids", JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(id))))
+        }, buildJsonObject {
+            put("op", "delete"); put("coll", "assignments"); put("ids", JsonArray(removedA.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }, buildJsonObject {
+            put("op", "delete"); put("coll", "files"); put("ids", JsonArray(removedF.map { kotlinx.serialization.json.JsonPrimitive(it.id) }))
+        }))
+    }
+
+    private fun upsertCourseOp(c: Course): JsonObject = buildJsonObject {
+        put("op", "upsert"); put("coll", "courses")
+        put("items", JsonArray(listOf(json.encodeToJsonElement(Course.serializer(), c))))
+    }
+
     /** 标完成/未完成（我的作业） */
     suspend fun toggleDone(a: Assignment) {
         val b = a.copy(status = if (a.status == "done") "pending" else "done")
