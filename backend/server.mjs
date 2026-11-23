@@ -9,68 +9,26 @@
 //
 // ehall Cookie 明文保存在本机 backend/data/，注意勿外传整个目录。
 import http from 'node:http'
-import { readFile, writeFile, mkdir, unlink, rename, readdir, rm, stat } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFile, writeFile, mkdir, unlink, readdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
-const rmDir = p => rm(p, { recursive: true, force: true })
+import { configurePaths } from './lib/env.mjs'
+import { json, readBody, readJson, clampStr, fileHeaders, dirSize, rmDir, safeId, norm, maskXh } from './lib/util.mjs'
+import { writeJsonAtomic, cleanTmpFiles } from './lib/persist.mjs'
+import { hashPassword, timingEq, ensureAdmin, checkAdminPassword, clientIp, rateLimited } from './lib/security.mjs'
+import { SESSION_DAYS, sessions, loadSessions, saveSessions, bearer, auth, userAuth, loadAccount, saveAccount, accountPath, accountFilesDir, forgetAccount, migrateLegacy } from './lib/accounts.mjs'
+import { sseAttach, sseBroadcastTo } from './lib/sse.mjs'
+import { shares, saveShares, loadShares, boardOf, boardDir, isOwner, courseKey, sanitizeGroup, groupHasContent, syncForMe } from './lib/shares.mjs'
+import { verifyCookie, ehallTimetable, ehallHeartbeatMaybe } from './lib/ehall.mjs'
+import { normalizeData, mergeAccountData, applyRemovals, mergeList } from './lib/merge.mjs'
 
-/* ---------- 原子写入 + 滚动备份 + 损坏自恢复 ----------
- * 所有 JSON 一律「写临时文件 → rename 原子替换」，进程崩溃/断电不会留下半个文件；
- * 每次保存成功后快照到 data/backups/<kind>/ 滚动保留最近 BACKUP_KEEP 份；
- * 启动加载发现主文件损坏时，自动从最新可用备份恢复，不再静默变空。 */
-const BACKUP_KEEP = 20
-
-async function writeJsonAtomic(file, obj) {
-  const tmp = `${file}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`
-  await writeFile(tmp, JSON.stringify(obj))
-  await rename(tmp, file)
-}
-
-async function backupJson(kind, obj) {
-  try {
-    const dir = path.join(BACKUP_DIR, kind)
-    await mkdir(dir, { recursive: true })
-    await writeFile(path.join(dir, Date.now() + '.json'), JSON.stringify(obj))
-    const all = (await readdir(dir)).filter(f => f.endsWith('.json')).sort()
-    for (const f of all.slice(0, Math.max(0, all.length - BACKUP_KEEP))) {
-      await unlink(path.join(dir, f)).catch(() => {})
-    }
-  } catch (e) {
-    console.error(`[backup] ${kind} 备份失败：`, e.message)
-  }
-}
-
-async function restoreLatestBackup(kind) {
-  try {
-    const dir = path.join(BACKUP_DIR, kind)
-    const files = (await readdir(dir)).filter(f => f.endsWith('.json')).sort().reverse()
-    for (const f of files) {
-      try { return JSON.parse(await readFile(path.join(dir, f), 'utf8')) } catch (e) { /* 试更早一份 */ }
-    }
-  } catch (e) { /* 无备份 */ }
-  return null
-}
-
-// 启动时清掉上次崩溃残留的 .tmp 临时文件（此刻没有并发写者）
-async function cleanTmpFiles() {
-  for (const dir of [DATA_DIR, ACCOUNTS_DIR]) {
-    for (const f of await readdir(dir).catch(() => [])) {
-      if (f.endsWith('.tmp')) await unlink(path.join(dir, f)).catch(() => {})
-    }
-  }
-}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 5174)
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data')
-const ACCOUNTS_DIR = path.join(DATA_DIR, 'accounts')
-const FILES_DIR = path.join(DATA_DIR, 'files')
-const ADMIN_FILE = path.join(DATA_DIR, 'admin.json')
-const EHALL = 'https://ehall.seu.edu.cn'
-const SESSION_DAYS = 30
 const MAX_JSON = 8 * 1024 * 1024
 const MAX_FILE = 100 * 1024 * 1024
 const MAX_ACCOUNT_DISK = 512 * 1024 * 1024   // 每账号云盘附件总配额
@@ -80,481 +38,67 @@ const MAX_PENDING = 50            // 每板待审作业/附件各自上限
 const MAX_BOARD_ITEMS = 200       // 每板已上架作业/附件各自上限
 const MAX_APPLICATIONS = 2000     // 负责人申请记录总量上限
 const MAX_KEY_LEN = 200           // 课程标识（name|teacher）长度上限
-const clampStr = (v, n) => String(v ?? '').slice(0, n)   // 服务端字段截断，防单条超大内容灌爆 shares.json
-const BACKUP_DIR = path.join(DATA_DIR, 'backups')
 
-await mkdir(ACCOUNTS_DIR, { recursive: true })
-await mkdir(FILES_DIR, { recursive: true })
+const ACCOUNTS_DIR = path.join(DATA_DIR, 'accounts')
+const FILES_DIR = path.join(DATA_DIR, 'files')
 
-/* ---------- 管理员（首次启动自动注册，账号密码打印在日志；重置=删除 admin.json）
- * 密码用 scrypt 慢哈希；兼容旧版 sha256(salt+hash) 格式，成功登录一次后自动升级。 ---------- */
-function hashPassword(pw) {
-  const salt = crypto.randomBytes(16).toString('hex')
-  const hash = crypto.scryptSync(String(pw), salt, 32).toString('hex')
-  return `scrypt$${salt}$${hash}`
-}
-function timingEq(a, b) {
-  const ba = Buffer.from(String(a))
-  const bb = Buffer.from(String(b))
-  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb)
-}
-async function ensureAdmin() {
-  if (existsSync(ADMIN_FILE)) return false
-  const username = process.env.ADMIN_USER || 'admin'
-  const password = process.env.ADMIN_PASS || crypto.randomBytes(9).toString('hex')
-  await writeJsonAtomic(ADMIN_FILE, { username, pw: hashPassword(password), createdAt: Date.now() })
-  console.log('════════════════════════════════════════════')
-  console.log(`👑 已注册管理员账号: ${username} / ${password}`)
-  console.log('   仅首次创建显示；忘记密码可删除 backend/data/admin.json 重启重置')
-  console.log('════════════════════════════════════════════')
-  return true
-}
-function checkAdminPassword(username, password) {
-  try {
-    const a = JSON.parse(readFileSync(ADMIN_FILE, 'utf8'))
-    let ok = false, legacy = false
-    if (typeof a.pw === 'string' && a.pw.startsWith('scrypt$')) {
-      const [, salt, hash] = a.pw.split('$')
-      ok = !!salt && !!hash && timingEq(crypto.scryptSync(String(password), salt, 32).toString('hex'), hash)
-    } else if (a.salt && a.hash) {   // 旧版 sha256(salt+password)，验证通过后升级为 scrypt
-      ok = timingEq(crypto.createHash('sha256').update(a.salt + password).digest('hex'), a.hash)
-      legacy = true
-    }
-    if (ok && a.username === username) {
-      if (legacy) {
-        writeJsonAtomic(ADMIN_FILE, { ...a, pw: hashPassword(password), salt: undefined, hash: undefined })
-          .then(() => console.log('[admin] 管理员密码哈希已升级为 scrypt'))
-          .catch(e => console.error('[admin] 哈希升级失败：', e.message))
-      }
-      return true
-    }
-    return false
-  } catch (e) { return false }
-}
-/* ---------- 账号存取（每账号独立文件，内存缓存） ---------- */
-const safeId = s => String(s).replace(/[^a-zA-Z0-9_-]/g, '')
-const accountPath = xh => path.join(ACCOUNTS_DIR, safeId(xh) + '.json')
-const accountFilesDir = xh => path.join(FILES_DIR, safeId(xh))
-
-const accountCache = new Map()   // xh -> 账号对象
-
-async function loadAccount(xh, { create = false } = {}) {
-  if (accountCache.has(xh)) return accountCache.get(xh)
-  let acc = null
-  try {
-    acc = JSON.parse(await readFile(accountPath(xh), 'utf8'))
-  } catch (e) {
-    if (existsSync(accountPath(xh))) {   // 文件在但读不出/解析失败 → 从备份恢复
-      acc = await restoreLatestBackup('accounts/' + safeId(xh))
-      if (acc) {
-        console.error(`[recover] 账号 ${xh} 数据文件损坏，已从备份自动恢复`)
-        await writeJsonAtomic(accountPath(xh), acc).catch(() => {})
-      }
-    }
-  }
-  if (!acc && create) acc = { xh, createdAt: Date.now(), cookie: '', data: null }
-  if (acc) accountCache.set(xh, acc)
-  return acc
-}
-async function saveAccount(acc) {
-  accountCache.set(acc.xh, acc)
-  try {
-    await writeJsonAtomic(accountPath(acc.xh), acc)
-    await backupJson('accounts/' + safeId(acc.xh), acc)
-  } catch (e) {
-    console.error(`[save] 账号 ${acc.xh} 保存失败：`, e.message)
-  }
-}
-
-/* ---------- 旧版单文件迁移（accounts.json + 扁平 files/） ---------- */
-async function migrateLegacy() {
-  const legacyFile = path.join(DATA_DIR, 'accounts.json')
-  if (!existsSync(legacyFile)) return
-  try {
-    const all = JSON.parse(await readFile(legacyFile, 'utf8'))
-    for (const old of Object.values(all)) {
-      if (!old?.xh) continue
-      const acc = await loadAccount(old.xh)
-      if (acc) continue   // 已有则不覆盖
-      await saveAccount({ ...old })
-      // 把该账号记录过的文件从旧的扁平目录移入其独立目录
-      const ids = (old.data?.files || []).filter(f => f.kind === 'blob').map(f => safeId(f.id))
-      if (ids.length) await mkdir(accountFilesDir(old.xh), { recursive: true })
-      for (const id of ids) {
-        const flat = path.join(FILES_DIR, id)
-        if (existsSync(flat)) await rename(flat, path.join(accountFilesDir(old.xh), id)).catch(() => {})
-      }
-      console.log(`[migrate] 账号 ${old.xh} 已迁移为独立文件`)
-    }
-    await mkdir(path.join(DATA_DIR, 'legacy'), { recursive: true })
-    await rename(legacyFile, path.join(DATA_DIR, 'legacy', 'accounts.json')).catch(() => {})
-    console.log('[migrate] 旧版 accounts.json 已备份至 data/legacy/')
-  } catch (e) {
-    console.error('[migrate] 迁移失败：', e.message)
-  }
-}
-
-/* ---------- 会话（全局 sessions.json） ---------- */
-const sessions = {}
-const pruneSessions = () => {
-  const now = Date.now()
-  for (const [t, s] of Object.entries(sessions)) if (s.expiresAt < now) delete sessions[t]
-}
-async function loadSessions() {
-  let data = null
-  try {
-    data = JSON.parse(await readFile(path.join(DATA_DIR, 'sessions.json'), 'utf8'))
-  } catch (e) {
-    if (existsSync(path.join(DATA_DIR, 'sessions.json'))) {
-      data = await restoreLatestBackup('sessions')
-      if (data) {
-        console.error('[recover] sessions.json 损坏，已从备份自动恢复')
-        await writeJsonAtomic(path.join(DATA_DIR, 'sessions.json'), data).catch(() => {})
-      }
-    }
-  }
-  if (data && typeof data === 'object') Object.assign(sessions, data)
-  pruneSessions()
-}
-async function saveSessions() {
-  pruneSessions()
-  try {
-    await writeJsonAtomic(path.join(DATA_DIR, 'sessions.json'), sessions)
-    await backupJson('sessions', sessions)
-  } catch (e) {
-    console.error('[save] sessions.json 保存失败：', e.message)
-  }
-}
-
-/* ---------- 工具 ---------- */
-// 应用与前端同源（经 5173 代理），无需跨域放行；不再返回 Access-Control-Allow-Origin: *
-function json(res, code, obj) {
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(obj))
-}
-const fail = (status, message) => { const e = new Error(message); e.status = status; throw e }
-function readBody(req, limit) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    let n = 0
-    req.on('data', c => {
-      n += c.length
-      if (n > limit) { const e = new Error('请求体过大'); e.status = 413; reject(e); req.destroy(); return }
-      chunks.push(c)
-    })
-    req.on('end', () => resolve(Buffer.concat(chunks)))
-    req.on('error', reject)
-  })
-}
-async function readJson(req, limit) {
-  const raw = (await readBody(req, limit)).toString('utf8')
-  try { return raw ? JSON.parse(raw) : {} } catch (e) { fail(400, '请求体不是合法 JSON') }
-}
-// 附件下载响应头：强制下载 + nosniff，防上传的 HTML/SVG 被浏览器内联执行
-function fileHeaders(res, name) {
-  const safe = String(name || '').replace(/[\r\n"\\/]/g, '_').slice(0, 120) || '附件'
-  res.writeHead(200, {
-    'Content-Type': 'application/octet-stream',
-    'X-Content-Type-Options': 'nosniff',
-    'Content-Disposition': `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(safe)}`
-  })
-}
-async function dirSize(dir) {
-  let n = 0
-  const walk = async d => {
-    for (const e of await readdir(d, { withFileTypes: true }).catch(() => [])) {
-      const fp = path.join(d, e.name)
-      if (e.isDirectory()) await walk(fp)
-      else { try { n += (await stat(fp)).size } catch (err) { /* 刚被删 */ } }
-    }
-  }
-  await walk(dir)
-  return n
-}
-const bearer = req => (/^Bearer (.+)$/.exec(req.headers.authorization || '') || [])[1] || ''
-function auth(req) {
-  const s = sessions[bearer(req)]
-  if (!s || s.expiresAt <= Date.now()) return null
-  // 滑动续期：活跃会话每次使用都顺延（1 小时节流，避免高频写盘），常用用户永不过期
-  if (Date.now() - (s.renewedAt || 0) > 3600e3) {
-    s.expiresAt = Date.now() + SESSION_DAYS * 864e5
-    s.renewedAt = Date.now()
-    saveSessions()
-  }
-  return s
-}
-// 用户端点专用：管理员会话不能当用户会话用
-function userAuth(req) {
-  const s = auth(req)
-  return (s && !s.admin) ? s : null
-}
-
-/* ---------- 数据同步合并（服务器权威） ----------
- * 客户端推送只能「新增/更新条目」，永远不能整体覆盖或删除云端数据：
- *   - 空集合/缺字段 = 不动该集合；推送里没有的条目原样保留
- *   - 同 id 条目按客户端副本更新（同一账号的编辑需要备份到云端）
- *   - 删除云端条目只能走 POST /data/delete 显式提交 id 白名单
- *   - 示例数据（c-demo 等）永不上云，防止新浏览器播种的示例污染真实账号
- * 三个写入端点的响应都携带合并后的权威状态 data，客户端必须采用（服务器强制下发）。
- */
-const SAMPLE_IDS = new Set(['c-demo', 'a-demo1', 'a-demo2', 'f-demo1'])
-const isSampleItem = it => !it || it.id == null || SAMPLE_IDS.has(String(it.id)) || it.sample === true
-
-function normalizeData(d) {
-  return {
-    courses: Array.isArray(d?.courses) ? d.courses : [],
-    assignments: Array.isArray(d?.assignments) ? d.assignments : [],
-    files: Array.isArray(d?.files) ? d.files : [],
-    syncStatus: d?.syncStatus && typeof d.syncStatus === 'object' ? d.syncStatus : {}
-  }
-}
-function mergeList(current, incoming, { addOnly = false } = {}) {
-  const out = [...(current || [])]
-  const idx = new Map(out.map((it, i) => [String(it.id), i]))
-  for (const it of (incoming || [])) {
-    if (isSampleItem(it)) continue
-    const i = idx.get(String(it.id))
-    if (i === undefined) { idx.set(String(it.id), out.length); out.push(it) }
-    else if (!addOnly) out[i] = { ...out[i], ...it }
-  }
-  return out
-}
-function mergeAccountData(serverData, body, { addOnly = false } = {}) {
-  const cur = normalizeData(serverData)
-  const inc = normalizeData(body)
-  return {
-    courses: mergeList(cur.courses, inc.courses, { addOnly }),
-    assignments: mergeList(cur.assignments, inc.assignments, { addOnly }),
-    files: mergeList(cur.files, inc.files, { addOnly }),
-    // 个人完成/归档状态按 key 合并：客户端已知的 key 以客户端为准，云端多出的 key 保留
-    syncStatus: { ...cur.syncStatus, ...inc.syncStatus }
-  }
-}
-// 显式删除：只删除调用方列出的 id，其余云端条目一律保留
-function applyRemovals(serverData, removed) {
-  const d = normalizeData(serverData)
-  const drop = (list, ids) => {
-    const s = new Set((Array.isArray(ids) ? ids : []).map(String))
-    return s.size ? list.filter(it => !s.has(String(it.id))) : list
-  }
-  return {
-    courses: drop(d.courses, removed?.courses),
-    assignments: drop(d.assignments, removed?.assignments),
-    files: drop(d.files, removed?.files),
-    syncStatus: d.syncStatus
-  }
-}
-
-/* ---------- 登录限速（防局域网内暴力破解） ----------
- * 经代理访问时取 X-Forwarded-For 最后一跳（由可信代理追加的真实客户端地址），
- * 直连 127.0.0.1 时用 socket 地址；伪造的 XFF 会被代理追加真实地址后挤到前面。 */
-const clientIp = req => {
-  const xf = String(req.headers['x-forwarded-for'] || '')
-  const last = xf.split(',').map(s => s.trim()).filter(Boolean).pop()
-  return last || req.socket.remoteAddress || 'unknown'
-}
-const rateBuckets = new Map()
-function rateLimited(key, max, windowMs) {
-  const now = Date.now()
-  const hits = (rateBuckets.get(key) || []).filter(t => now - t < windowMs)
-  hits.push(now)
-  rateBuckets.set(key, hits)
-  if (rateBuckets.size > 5000) {
-    for (const [k, v] of rateBuckets) if (!v.some(t => now - t < windowMs)) rateBuckets.delete(k)
-  }
-  return hits.length > max
-}
-
-/* ---------- 课程负责人与共享板（shares.json） ----------
- * applications: [{ key, xh, appliedAt, decidedAt?, status: 'pending'|'approved'|'rejected' }]
- *   - rejected 永久生效：同一人对同一课程被驳回后不可重新申请
- * owners: { [courseKey]: 学号 }  每门课一名课程负责人
- * boards: { [courseKey]: { assignments: [...], files: [...],
- *           pendingAssignments: [{id,xh,title,deadline,requirement,submittedAt}],
- *           pendingFiles: [{id,xh,name,size,submittedAt}] } }
- *   共享板由负责人编辑；普通成员可「投稿」作业/附件进入待审队列，负责人审核通过后上架同步。
- */
-/* ---------- SSE 实时广播（共享板变更即时推给在线客户端，前端收到后重拉 /sync） ----------
- * 连接表 { res, xh }；同一 token 多标签页多连接属正常；班级规模无需限流。
- * res/req 挂 error 监听：向已断连接写入会触发流错误，无人接住会让整个进程崩溃。 */
-const sseClients = new Set()
-function sseBroadcast() {
-  const frame = `event: sync\ndata: {"t": ${Date.now()}}\n\n`
-  for (const c of [...sseClients]) {
-    try { c.res.write(frame) } catch (e) { sseClients.delete(c) }
-  }
-}
-// 按账号定向广播：账号数据（/data 系端点）变更只发给同一账号的在线连接，
-// 前端收到后重拉 /data（同账号跨设备实时；发起端自己也收到，由前端 ops 在途守卫跳过）
-function sseBroadcastTo(xh, event = 'data') {
-  const frame = `event: ${event}\ndata: {"t": ${Date.now()}}\n\n`
-  for (const c of [...sseClients]) {
-    if (c.xh !== xh) continue
-    try { c.res.write(frame) } catch (e) { sseClients.delete(c) }
-  }
-}
-// 心跳 ≤25s：既保活也让代理不判定空闲断开；写失败即移除
-setInterval(() => {
-  for (const c of [...sseClients]) {
-    try { c.res.write(': ka\n\n') } catch (e) { sseClients.delete(c) }
-  }
-}, 25 * 1000).unref()
-
-const SHARES_FILE = path.join(DATA_DIR, 'shares.json')
-const shares = { applications: [], owners: {}, boards: {} }
-async function loadShares() {
-  let data = null
-  try {
-    data = JSON.parse(await readFile(SHARES_FILE, 'utf8'))
-  } catch (e) {
-    if (existsSync(SHARES_FILE)) {
-      data = await restoreLatestBackup('shares')
-      if (data) {
-        console.error('[recover] shares.json 损坏，已从最新备份自动恢复！')
-        // 立即把恢复内容回写主文件，避免损坏文件滞留磁盘
-        await writeJsonAtomic(SHARES_FILE, data).catch(e2 => console.error('[recover] 回写失败：', e2.message))
-      }
-    }
-  }
-  if (data && typeof data === 'object') {
-    shares.applications = Array.isArray(data.applications) ? data.applications : []
-    shares.owners = data.owners && typeof data.owners === 'object' ? data.owners : {}
-    shares.boards = data.boards && typeof data.boards === 'object' ? data.boards : {}
-  }
-  // 教学群多群模型迁移：旧的单个 group（若有内容）并入 groups 首位；旧单条待审申请迁入队列
-  for (const b of Object.values(shares.boards)) {
-    if (!Array.isArray(b.groups)) {
-      b.groups = groupHasContent(b.group)
-        ? [{ id: crypto.randomBytes(8).toString('hex'), ...sanitizeGroup(b.group), updatedAt: b.group.updatedAt || Date.now() }]
-        : []
-    }
-    b.group = null
-    if (!Array.isArray(b.pendingGroups)) {
-      b.pendingGroups = b.pendingGroup
-        ? [{
-            pid: crypto.randomBytes(8).toString('hex'),
-            action: b.pendingGroup.action || 'edit',
-            gid: b.pendingGroup.id,
-            group: sanitizeGroup(b.pendingGroup.group),
-            xh: b.pendingGroup.xh,
-            submittedAt: b.pendingGroup.submittedAt || Date.now()
-          }]
-        : []
-    }
-    b.pendingGroup = null
-  }
-}
-async function saveShares() {
-  let persisted = false
-  try {
-    await writeJsonAtomic(SHARES_FILE, shares)
-    await backupJson('shares', shares)
-    persisted = true
-  } catch (e) {
-    console.error('[save] shares.json 保存失败：', e.message)
-  }
-  // 唯一广播点：所有共享板/投稿/负责人变更都经 saveShares 落盘；写盘失败不广播。
-  // 账号数据（/data 系端点）的跨设备广播在各自端点内用 sseBroadcastTo(定向同账号) 完成。
-  if (persisted && sseClients.size) sseBroadcast()
-}
-const boardOf = key => (shares.boards[key] = shares.boards[key] || { assignments: [], files: [], pendingAssignments: [], pendingFiles: [], groups: [], pendingGroups: [], group: null, pendingGroup: null })
-/* 教学群多群模型：boards[key].groups = [{id,type,num,link,note,updatedAt}...]，一门课可挂多个群 */
-const sanitizeGroup = g => ({
-  type: String(g?.type || '').slice(0, 20),
-  num: String(g?.num || '').slice(0, 60),
-  link: String(g?.link || '').slice(0, 300),
-  note: String(g?.note || '').slice(0, 200)
+configurePaths({
+  DATA_DIR,
+  ACCOUNTS_DIR: path.join(DATA_DIR, 'accounts'),
+  FILES_DIR: path.join(DATA_DIR, 'files')
 })
-const groupHasContent = g => !!(g && (g.num || g.link || g.note))
-const keyHash = key => crypto.createHash('sha256').update('board:' + key).digest('hex').slice(0, 16)
-const boardDir = key => path.join(FILES_DIR, 'board', keyHash(key))
-const isOwner = (xh, key) => shares.owners[key] === xh
+await mkdir(path.join(DATA_DIR, 'accounts'), { recursive: true })
+await mkdir(path.join(DATA_DIR, 'files'), { recursive: true })
 
-/* ---------- 课程共享（同名同教师匹配） ---------- */
-const norm = v => String(v || '').trim().toLowerCase().replace(/\s+/g, '')
-const courseKey = c => norm(c.name) + '|' + norm(c.teacher)
-const xhRef = xh => crypto.createHash('sha256').update('ref:' + xh).digest('hex').slice(0, 10)
-const maskXh = xh => (xh.length > 5 ? xh.slice(0, 3) + '****' + xh.slice(-2) : xh)
-
-// 我能收到同步的课程：有共享板且有上架内容即推送（负责人或管理员维护），排除自己维护的
-async function syncForMe(myXh) {
-  const me = await loadAccount(myXh)
-  const out = []
-  for (const c of me?.data?.courses || []) {
-    const key = courseKey(c)
-    const board = shares.boards[key]
-    if (!board) continue
-    const hasGroup = (board.groups || []).some(groupHasContent)
-    if (!board.assignments?.length && !board.files?.length && !hasGroup) continue   // 板上还没有任何上架内容时不推送空同步
-    const ownerXh = shares.owners[key]
-    if (ownerXh === myXh) continue   // 负责人自己走管理卡片，不重复下发
-    out.push({
-      key,
-      ref: keyHash(key),
-      from: ownerXh ? maskXh(ownerXh) : '管理员',
-      groups: board.groups || [],
-      group: (board.groups || []).find(groupHasContent) || null,   // 旧前端兼容：首个有内容的群
-      assignments: (board.assignments || []).map(a => ({
-        id: a.id, title: a.title, deadline: a.deadline || '', requirement: a.requirement || ''
-      })),
-      files: (board.files || []).map(f => ({ id: f.id, name: f.name, size: f.size }))
-    })
+/* ---------- 应用更新（公开，免登录）：服务端中转 GitHub Releases ----------
+ * 部分客户端网络直连 api.github.com 会被重置，但板子域名必然可达——以板子为跳板最稳。
+ * 元数据内存缓存 10 分钟，GitHub 抖动时回退上次缓存；APK 落盘缓存到
+ * data/cache/appupdate/，首次从 GitHub 拉取，之后直接回缓存。 */
+let appUpdateCache = { at: 0, data: null }
+async function ensureAppUpdateData() {
+  if (Date.now() - appUpdateCache.at < 10 * 60 * 1000 && appUpdateCache.data) return appUpdateCache.data
+  const r = await fetch('https://api.github.com/repos/rickylxw/classinfo-board/releases/latest', {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'classinfo-board' }
+  })
+  if (!r.ok) throw new Error('GitHub HTTP ' + r.status)
+  const j = await r.json()
+  const apk = (j.assets || []).find(a => /\.apk$/.test(a.name))
+  appUpdateCache = {
+    at: Date.now(),
+    data: {
+      tag: j.tag_name,
+      apkUrl: apk ? apk.browser_download_url : '',
+      apkName: apk ? apk.name : '',
+      notes: j.body || '',
+      htmlUrl: j.html_url
+    }
   }
-  return out
+  return appUpdateCache.data
 }
-
-/* ---------- ehall 验证与课表 ---------- */
-async function ehallGet(pathname, cookie) {
-  // redirect: 'manual' —— 未登录时 ehall 会 302 到统一认证页，据此判定 Cookie 失效
-  return fetch(EHALL + pathname, { headers: { cookie }, redirect: 'manual' })
-}
-async function ehallTerms(cookie) {
-  let r
-  try {
-    r = await ehallGet('/jwapp/sys/wdkb/modules/jshkcb/xnxqcx.do', cookie)
-  } catch (e) {
-    throw new Error('无法访问 ehall（请检查本机网络能否直连 ehall.seu.edu.cn）')
+async function serveUpdateApk(res, tag, name) {
+  if (!/^native-v[0-9A-Za-z.\-]+$/.test(tag) || !/^[0-9A-Za-z._\-]+\.apk$/.test(name)) {
+    return json(res, 400, { error: '参数不合法' })
   }
-  if (r.status === 301 || r.status === 302) throw new Error('Cookie 无效或已过期（ehall 重定向到了登录页）')
-  if (r.status !== 200) throw new Error('ehall 返回异常 HTTP ' + r.status)
-  const j = await r.json().catch(() => null)
-  const terms = j?.datas?.xnxqcx?.rows
-  if (!Array.isArray(terms) || !terms.length) throw new Error('Cookie 无效或已过期（未返回学期数据）')
-  // 实测 PX 越小学期越新
-  return [...terms].sort((a, b) => parseInt(a.PX) - parseInt(b.PX))
-}
-// 按当前日期猜测学期代码：9-1月=秋季(-2)，2-6月=春季(-3)，7-8月=暑期(-1)
-function guessCurrentTerm(terms) {
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = now.getMonth() + 1
-  const start = m >= 8 ? y : y - 1
-  const code = (m >= 9 || m === 1) ? `${start}-${start + 1}-2`
-    : (m >= 2 && m <= 6) ? `${start}-${start + 1}-3`
-    : `${start}-${start + 1}-1`
-  return terms.find(t => t.DM === code)
-}
-async function ehallTimetable(cookie) {
-  const terms = await ehallTerms(cookie)
-  // 优先取按日期推断的当前学期，取不到课再从新到旧兜底
-  const guess = guessCurrentTerm(terms)
-  const ordered = guess ? [guess, ...terms.filter(t => t !== guess)] : terms
-  for (const t of ordered) {
-    const r = await ehallGet('/jwapp/sys/wdkb/modules/xskcb/xskcb.do?XNXQDM=' + encodeURIComponent(t.DM), cookie).catch(() => null)
-    if (!r || r.status !== 200) continue
-    const j = await r.json().catch(() => null)
-    const rows = j?.datas?.xskcb?.rows
-    if (rows?.length) return { term: t.MC, dm: t.DM, rows }
+  const dir = path.join(DATA_DIR, 'cache', 'appupdate')
+  const fp = path.join(dir, name)
+  if (!existsSync(fp)) {
+    await mkdir(dir, { recursive: true })
+    const gh = `https://github.com/rickylxw/classinfo-board/releases/download/${tag}/${encodeURIComponent(name)}`
+    const r = await fetch(gh, { headers: { 'User-Agent': 'classinfo-board' } })
+    if (!r.ok) throw new Error('GitHub HTTP ' + r.status)
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (buf.length < 1024 * 1024) throw new Error('下载内容异常（过小）')
+    await writeFile(fp, buf)
+    console.log(`[app-update] 缓存 ${name}（${(buf.length / 1048576).toFixed(1)} MB）`)
   }
-  throw new Error('最近几个学期都没有查到课表数据')
-}
-// 验证 Cookie 并从课表响应里提取学号（XH）作为账号身份
-let lastBeatAt = 0   // ehall 心跳节流
-async function verifyCookie(cookie) {
-  const kb = await ehallTimetable(cookie)
-  const xh = kb.rows.find(x => x.XH)?.XH
-  if (!xh) throw new Error('Cookie 验证通过，但课表数据里没有学号字段（XH），无法确定账号')
-  return { xh: String(xh) }
+  const buf = await readFile(fp)
+  res.writeHead(200, {
+    'Content-Type': 'application/vnd.android.package-archive',
+    'Content-Length': buf.length,
+    'Content-Disposition': `attachment; filename="${name}"`,
+    'Cache-Control': 'public, max-age=3600'
+  })
+  res.end(buf)
 }
 
 /* ---------- 路由 ---------- */
@@ -657,25 +201,7 @@ http.createServer(async (req, res) => {
     if (p === '/events' && req.method === 'GET') {
       const ts = sessions[url.searchParams.get('token') || '']
       if (!ts || ts.expiresAt <= Date.now()) return json(res, 401, { error: '未登录或会话过期' })
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no'
-      })
-      const client = { res, xh: ts.xh }
-      sseClients.add(client)
-      // 断连清理（close）+ 流错误兜底（写已断连接会 async 抛错，无人接住进程会崩）
-      let gone = false
-      const cleanup = () => {
-        if (gone) return
-        gone = true
-        sseClients.delete(client)
-        console.log(`[sse] ${client.xh} 连接断开（当前 ${sseClients.size} 个）`)
-      }
-      req.on('close', cleanup)
-      req.on('error', cleanup)
-      res.on('error', cleanup)
-      console.log(`[sse] ${client.xh} 建立实时连接（当前 ${sseClients.size} 个）`)
+      sseAttach(req, res, ts.xh)
       return   // 保持连接，不 end；事件由 sseBroadcast/心跳写入
     }
 
@@ -861,7 +387,7 @@ http.createServer(async (req, res) => {
         await rmDir(accountFilesDir(xh))
         for (const [t, x] of Object.entries(sessions)) if (x.xh === xh) delete sessions[t]
         saveSessions()
-        accountCache.delete(xh)
+        forgetAccount(xh)
         console.log(`[admin] 账号 ${xh} 已删除`)
         return json(res, 200, { ok: true })
       }
@@ -905,52 +431,6 @@ http.createServer(async (req, res) => {
      * 部分客户端网络直连 api.github.com 会被重置，但板子域名必然可达——以板子为跳板最稳。
      * 元数据内存缓存 10 分钟，GitHub 抖动时回退上次缓存；APK 落盘缓存到
      * data/cache/appupdate/，首次从 GitHub 拉取，之后直接回缓存。 */
-    let appUpdateCache = { at: 0, data: null }
-    async function ensureAppUpdateData() {
-      if (Date.now() - appUpdateCache.at < 10 * 60 * 1000 && appUpdateCache.data) return appUpdateCache.data
-      const r = await fetch('https://api.github.com/repos/rickylxw/classinfo-board/releases/latest', {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'classinfo-board' }
-      })
-      if (!r.ok) throw new Error('GitHub HTTP ' + r.status)
-      const j = await r.json()
-      const apk = (j.assets || []).find(a => /\.apk$/.test(a.name))
-      appUpdateCache = {
-        at: Date.now(),
-        data: {
-          tag: j.tag_name,
-          apkUrl: apk ? apk.browser_download_url : '',
-          apkName: apk ? apk.name : '',
-          notes: j.body || '',
-          htmlUrl: j.html_url
-        }
-      }
-      return appUpdateCache.data
-    }
-    async function serveUpdateApk(res, tag, name) {
-      if (!/^native-v[0-9A-Za-z.\-]+$/.test(tag) || !/^[0-9A-Za-z._\-]+\.apk$/.test(name)) {
-        return json(res, 400, { error: '参数不合法' })
-      }
-      const dir = path.join(DATA_DIR, 'cache', 'appupdate')
-      const fp = path.join(dir, name)
-      if (!existsSync(fp)) {
-        await mkdir(dir, { recursive: true })
-        const gh = `https://github.com/rickylxw/classinfo-board/releases/download/${tag}/${encodeURIComponent(name)}`
-        const r = await fetch(gh, { headers: { 'User-Agent': 'classinfo-board' } })
-        if (!r.ok) throw new Error('GitHub HTTP ' + r.status)
-        const buf = Buffer.from(await r.arrayBuffer())
-        if (buf.length < 1024 * 1024) throw new Error('下载内容异常（过小）')
-        await writeFile(fp, buf)
-        console.log(`[app-update] 缓存 ${name}（${(buf.length / 1048576).toFixed(1)} MB）`)
-      }
-      const buf = await readFile(fp)
-      res.writeHead(200, {
-        'Content-Type': 'application/vnd.android.package-archive',
-        'Content-Length': buf.length,
-        'Content-Disposition': `attachment; filename="${name}"`,
-        'Cache-Control': 'public, max-age=3600'
-      })
-      res.end(buf)
-    }
     if (p === '/app-update/latest' && req.method === 'GET') {
       if (rateLimited('app-update:' + clientIp(req), 30, 60 * 1000)) return json(res, 429, { error: 'too frequent' })
       try {
@@ -1363,11 +843,7 @@ http.createServer(async (req, res) => {
     if (!s) return json(res, 401, { error: '未登录或会话过期' })
     const acc = await loadAccount(s.xh)
 
-    // ehall 心跳：使用期间轻触接口保持保存的 Cookie 会话活跃（10 分钟一次，失败忽略）
-    if (acc?.cookie && Date.now() - lastBeatAt > 10 * 60 * 1000) {
-      lastBeatAt = Date.now()
-      ehallGet('/jwapp/sys/wdkb/modules/jshkcb/xnxqcx.do', acc.cookie).catch(() => {})
-    }
+    ehallHeartbeatMaybe(acc)   // ehall 心跳：10 分钟一次轻触保活，失败忽略
 
     if (p === '/data' && req.method === 'GET') {
       return json(res, 200, normalizeData(acc?.data))

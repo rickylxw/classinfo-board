@@ -1,7 +1,7 @@
 {
   "name": "classinfo-board",
   "private": true,
-  "version": "2.12.0",
+  "version": "2.11.0",
   "license": "GPL-3.0-or-later",
   "description": "开源班级课程管理工具：课表 / 作业 / 共享板 / 群消息阅读（桌面端）",
   "type": "module",
@@ -43,7 +43,12 @@
     ],
     "win": {
       "target": [
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "public/icons/icon-512.png"
     },

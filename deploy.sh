@@ -38,9 +38,9 @@ echo "==> [2/4] 打包"
 TARBALL="$(mktemp /tmp/cb-deploy-XXXXXX.tar.gz)"
 trap 'rm -f "$TARBALL"' EXIT
 case "$MODE" in
-  fe)    tar -czf "$TARBALL" dist;                             PARTS="前端 dist" ;;
-  be)    tar -czf "$TARBALL" backend/server.mjs;               PARTS="后端 backend/server.mjs" ;;
-  full)  tar -czf "$TARBALL" dist server.mjs backend/server.mjs; PARTS="dist + server.mjs + backend/server.mjs" ;;
+  fe)    tar -czf "$TARBALL" dist;                                      PARTS="前端 dist" ;;
+  be)    tar -czf "$TARBALL" backend/server.mjs backend/lib;            PARTS="后端 server.mjs + lib/" ;;
+  full)  tar -czf "$TARBALL" dist server.mjs backend/server.mjs backend/lib; PARTS="dist + server.mjs + backend(server.mjs + lib/)" ;;
 esac
 echo "    内容: $PARTS（$(du -h "$TARBALL" | cut -f1)）"
 
