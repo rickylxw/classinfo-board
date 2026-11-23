@@ -108,7 +108,7 @@ function openCourse(id) {
           :class="{ done: p.kind === 'synced' && store.syncStatus[p.a.id] === 'done' }"
           @click="openCourse(p.course.id)">
           <button
-            v-if="p.kind === 'local'"
+            v-if="p.kind !== 'synced'"
             class="chk" title="标记完成" @click.stop="toggleAssignment(p.a.id)"></button>
           <button
             v-else
@@ -137,12 +137,12 @@ function openCourse(id) {
           </div>
           <div class="asg-ops">
             <button
-              v-if="p.kind === 'local'"
+              v-if="p.kind !== 'synced'"
               class="icon-btn" title="归档（从列表收起，可在「归档」找回）" @click.stop="archiveAssignment(p.a.id)">📦</button>
             <button
               v-else-if="p.kind === 'synced'"
               class="icon-btn" title="归档（仅自己隐藏，可在「归档」找回）" @click.stop="archiveSynced(p.a.id)">📦</button>
-            <button v-if="p.kind === 'local'" class="icon-btn" title="编辑" @click.stop="emit('edit-assignment', p.a)">✏️</button>
+            <button v-if="p.kind !== 'synced'" class="icon-btn" title="编辑" @click.stop="emit('edit-assignment', p.a)">✏️</button>
             <button v-else-if="p.kind === 'synced'" class="icon-btn" title="复制为我的作业" @click.stop="copySharedAssignment(p.a, p.course.id)">📋</button>
             <button v-if="p.kind !== 'synced'" class="icon-btn" title="删除" @click.stop="deleteAssignment(p.a.id)">🗑️</button>
           </div>
