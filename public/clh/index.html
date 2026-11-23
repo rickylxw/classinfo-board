@@ -387,7 +387,8 @@ window.addEventListener('unhandledrejection', function (e) {
           <span class="chip" :class="{ on: rvFilter === 2 }" @click="rvFilterSet(2)">★★ {{ rvCounts[2] }}</span>
           <span class="chip" :class="{ on: rvFilter === 1 }" @click="rvFilterSet(1)">★ {{ rvCounts[1] }}</span>
           <span class="chip" :class="{ on: rvFilter === 'q' }" @click="rvFilterSet('q')">✏️ 题目 {{ rvCounts.q }}</span>
-          <span class="chip" :class="{ on: rvFilter === 'again' }" @click="rvFilterSet('again')">🔁 待复习 {{ againCount }}</span>
+          <span class="chip" :class="{ on: rvFilter === 'due' }" @click="rvFilterSet('due')">⏰ 到期 {{ dueCount }}</span>
+          <span class="chip" :class="{ on: true }" title="今天已复习的卡片数">📅 今日 {{ todayCount }}</span>
         </div>
       </div>
       <div class="rv-stage" v-if="rvCards.length && rvCurrent">

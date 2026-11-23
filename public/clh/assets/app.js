@@ -1091,6 +1091,14 @@ ${SummaryBuilder.outlineText(slides.value)}` },
                   }
                 }
               }
+              // 复习进度合并：逐 key 取 t 较新的那份（旧格式字符串按 t=0 处理，云端 v2 总是赢）
+              if (r.data.mastery && typeof r.data.mastery === 'object') {
+                for (const [k, rec] of Object.entries(r.data.mastery)) {
+                  const rec2 = normMasteryRec(rec);
+                  const cur = masteryOf(k);
+                  if ((Number(rec2.t) || 0) >= (Number(cur.t) || 0)) reviewMastery[k] = rec2;
+                }
+              }
               activeCourseId.value = null; activeDeckId.value = null;
               slides.value = []; tree.value = null; kpList.value = []; qList.value = [];
             } finally {
@@ -1118,6 +1126,7 @@ ${SummaryBuilder.outlineText(slides.value)}` },
           updatedAt: Date.now(),
           courses: sanitizeCourses(),
           attempts: Object.values(attemptsMap).map(a => JSON.parse(JSON.stringify(a))),
+          mastery: JSON.parse(JSON.stringify(reviewMastery)),
         };
           const r = await clhCall('/api/clh-data', { method: 'PUT', body: JSON.stringify(payload) });
           lastSyncAt.value = r.savedAt || Date.now();
@@ -1202,7 +1211,34 @@ ${SummaryBuilder.outlineText(slides.value)}` },
       const rvInput = ref('');
       const rvGradedKey = ref('');
       const rvVerdictOK = ref(false);
-      const reviewMastery = reactive(JSON.parse(localStorage.getItem('clh-review-mastery') || '{}'));
+      /* 掌握状态 v2：{ s:'known'|'again', level:0..5, due:到期时间戳, t:最后复习时间戳 }
+       * v1 是 'known'|'again' 字符串（无调度、无时间戳）——读取时自动迁移。
+       * 随 clh-data 云同步（payload.mastery），换设备/清浏览器不再丢复习进度。 */
+      const MASTERY_KEY = 'clh-review-mastery';
+      const RV_INTERVALS = [0, 864e5, 3 * 864e5, 7 * 864e5, 16 * 864e5, 35 * 864e5];   // level→下次间隔
+      function normMasteryRec(v) {
+        if (v && typeof v === 'object') {
+          return { s: v.s === 'again' ? 'again' : 'known', level: Number(v.level) || 0, due: Number(v.due) || 0, t: Number(v.t) || 0 };
+        }
+        return v === 'again'
+          ? { s: 'again', level: 0, due: 0, t: 0 }
+          : { s: 'known', level: 1, due: Date.now() + 2592e5, t: 0 };   // 旧「记住了」3 天后自然到期
+      }
+      const reviewMastery = reactive((() => {
+        let raw = {};
+        try { raw = JSON.parse(localStorage.getItem(MASTERY_KEY) || '{}'); } catch (e) {}
+        const out = {};
+        for (const [k, v] of Object.entries(raw)) out[k] = normMasteryRec(v);
+        return out;
+      })());
+      function persistMastery() {
+        try { localStorage.setItem(MASTERY_KEY, JSON.stringify(reviewMastery)); } catch (e) {}
+      }
+      const masteryOf = key => reviewMastery[key] || { s: 'pending', level: 0, due: 0, t: 0 };
+      // 到期判定依赖当前时间：60s 一跳的 nowTick 让「到期」计数与筛选保持新鲜
+      const nowTick = ref(0);
+      setInterval(() => { nowTick.value = Date.now(); }, 60000);
+      const isDue = c => { const m = masteryOf(c.key); return m.s === 'again' || (m.due || 0) <= nowTick.value; };
 
       const reviewCards = computed(() => {
         const c = activeCourse.value;
@@ -1247,20 +1283,26 @@ ${SummaryBuilder.outlineText(slides.value)}` },
         }
         return n;
       });
-      const againCount = computed(() => reviewCards.value.filter(c => reviewMastery[c.key] === 'again').length);
+      const againCount = computed(() => reviewCards.value.filter(c => masteryOf(c.key).s === 'again').length);
+      const dueCount = computed(() => { nowTick.value; return reviewCards.value.filter(isDue).length; });
+      const todayCount = computed(() => {
+        const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+        return Object.values(reviewMastery).filter(m => (Number(m.t) || 0) >= d0.getTime()).length;
+      });
       const rvCards = computed(() => reviewCards.value.filter(c => {
         const f = rvFilter.value;
         if (f === 'all') return true;
-        if (f === 'again') return reviewMastery[c.key] === 'again';
+        if (f === 'due') return isDue(c);
         if (f === 'q') return c.kind === 'question';
         return Number(f) === c.stars;
       }));
-      // 本轮队列：基准顺序 + "没记住"的卡重排到队尾（cram 式循环巩固）
+      // 本轮队列：到期卡优先（due 早的在前），未到期卡按基准顺序殿后自由练习
       const rvQueue = computed(() => {
+        nowTick.value;
         const base = rvCards.value.slice();
-        const again = base.filter(c => reviewMastery[c.key] === 'again');
-        for (const c of again) { const p = base.indexOf(c); if (p !== -1) { base.splice(p, 1); base.push(c); } }
-        return base;
+        const due = base.filter(isDue).sort((a, b) => (masteryOf(a.key).due || 0) - (masteryOf(b.key).due || 0));
+        const rest = base.filter(c => !isDue(c));
+        return [...due, ...rest];
       });
       const rvCurrent = computed(() => {
         const q = rvQueue.value;
@@ -1291,9 +1333,15 @@ ${SummaryBuilder.outlineText(slides.value)}` },
       function rvMark(state) {
         const c = rvCurrent.value;
         if (!c) return;
-        reviewMastery[c.key] = state;
-        try { localStorage.setItem('clh-review-mastery', JSON.stringify(reviewMastery)); } catch (e) {}
-        rvNext();   // "没记住"的卡已由 rvQueue 自动重排到队尾
+        const prev = masteryOf(c.key);
+        const now = Date.now();
+        // SM-2 lite：没记住 → 级别归零、10 分钟后重现；记住了 → 级别 +1，按间隔表顺延
+        const level = state === 'again' ? 0 : Math.min(5, (prev.level || 0) + 1);
+        const due = state === 'again' ? now + 6e5 : now + RV_INTERVALS[level];
+        reviewMastery[c.key] = { s: state, level, due, t: now };
+        persistMastery();
+        scheduleCloudPush();   // 复习进度随 clh-data 云同步（2.5s 防抖已有）
+        rvNext();   // 到期队列由 due 排序接管，「没记住」10 分钟后自动重现
       }
       // ---------- 弱点画像 ----------
       const statItems = computed(() => bankItems.value.map(q => {
@@ -1755,7 +1803,7 @@ ${SummaryBuilder.outlineText(slides.value)}` },
         onCanvasDown, onCanvasMove, onCanvasUp,
         startEdit, endEdit, openAI, saveAI, applyPreset, aiSummarize,
         showCloud, cloudErr, cloudInfo, cloudBusy,
-        openReview, rvFilter, rvIdx, rvFlipped, rvCards, rvCurrent, rvCounts, againCount,
+        openReview, rvFilter, rvIdx, rvFlipped, rvCards, rvCurrent, rvCounts, againCount, dueCount, todayCount,
         rvGradable, rvGraded, rvSubmit, rvInput, rvVerdictOK,
         openStats, statItems, attemptSummary, wrongTagStats, kpMastery, wrongItems,
         attemptsMap, revealMap, WRONG_TAGS, wrongSel, qKeyOf, attStatus, recordAttempt, toggleWrongTag, bankStatus,
