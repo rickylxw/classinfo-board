@@ -91,19 +91,30 @@ fun UpdateDialog(onDismiss: () -> Unit) {
                     )
                 }
 
-                // 下载进度
+                // 下载进度：进度条 + 百分比 + 字节数（应用内下载，不转圈）
                 if (Updater.downloading || Updater.progress in 1..99) {
                     Spacer(Modifier.height(12.dp))
-                    LinearProgressIndicator(
-                        progress = { (Updater.progress / 100f) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LinearProgressIndicator(
+                            progress = { Updater.progress / 100f },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "${Updater.progress}%",
+                            fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(42.dp)
+                        )
+                    }
                     Text(
-                        "下载中 ${Updater.progress}%",
-                        fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)
+                        mbText() + "（完成后自动拉起安装）",
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 3.dp)
                     )
+
                 }
-                if (Updater.progress == 100 && Updater.downloadedFile != null) {
+                if (Updater.progress == 100 && !Updater.downloading) {
                     Text("下载完成，正在拉起安装…", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 }
                 Updater.downloadError?.let { err ->
@@ -115,8 +126,7 @@ fun UpdateDialog(onDismiss: () -> Unit) {
         confirmButton = {
             when {
                 Updater.downloading -> Button(onClick = {}, enabled = false) {
-                    CircularProgressIndicator(Modifier.height(18.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp)); Text("下载中 ${Updater.progress}%")
+                    Text("下载中…")
                 }
                 Updater.progress == 100 && Updater.downloadedFile != null ->
                     Button(onClick = { Updater.promptInstall(ctx) }) { Text("安装") }
@@ -158,4 +168,12 @@ private fun mirrorLatencySuffix(m: Mirror): String {
     if (m == Mirror.AUTO) return ""
     val l = if (m == Mirror.BOARD) Updater.latencyBoard else Updater.latencyGithub
     return " · " + (l?.let { "${it}ms" } ?: "×")
+}
+
+private fun mbText(): String {
+    val b = Updater.progressBytes
+    val t = Updater.totalBytes
+    if (t <= 0) return ""
+    fun f(v: Long) = String.format(java.util.Locale.US, "%.1f MB", v / 1048576.0)
+    return "${f(b)} / ${f(t)}"
 }

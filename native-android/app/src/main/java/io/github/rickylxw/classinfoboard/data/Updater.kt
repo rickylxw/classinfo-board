@@ -64,6 +64,8 @@ object Updater {
     /* ---------- 下载状态（应用内进度） ---------- */
     var downloading by mutableStateOf(false); private set
     var progress by mutableStateOf(0)            // 0..100
+    var progressBytes by mutableStateOf(0L); private set
+    var totalBytes by mutableStateOf(0L); private set
     var downloadError by mutableStateOf<String?>(null); private set
     var downloadedFile by mutableStateOf<File?>(null); private set
 
@@ -175,8 +177,8 @@ object Updater {
         }.getOrNull()
     }
 
-    /** 应用内下载：进度回调百分比；完成返回 APK 文件（自动拉起安装由调用方执行） */
-    private suspend fun downloadApk(ctx: Context, rel: GhRelease, onProgress: (Int) -> Unit): File =
+    /** 应用内下载：回调（已下载字节, 总字节）；完成返回 APK 文件 */
+    private suspend fun downloadApk(ctx: Context, rel: GhRelease, onProgress: (Long, Long) -> Unit): File =
         withContext(Dispatchers.IO) {
             val url = resolveUrl(rel)
             val dir = ctx.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: ctx.cacheDir
@@ -198,7 +200,7 @@ object Updater {
                             read += n
                             if (total > 0) {
                                 val pct = (read * 100 / total).toInt()
-                                if (pct != lastPct) { lastPct = pct; onProgress(pct) }
+                                if (pct != lastPct) { lastPct = pct; onProgress(read, total) }
                             }
                         }
                     }
@@ -215,11 +217,17 @@ object Updater {
         if (downloading) return
         downloading = true
         progress = 0
+        progressBytes = 0
+        totalBytes = 0
         downloadError = null
         downloadedFile = null
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             try {
-                val f = downloadApk(ctx, rel) { progress = it }
+                val f = downloadApk(ctx, rel) { loaded, total ->
+                    progressBytes = loaded
+                    totalBytes = total
+                    progress = if (total > 0) (loaded * 100 / total).toInt() else 0
+                }
                 downloadedFile = f
                 progress = 100
                 downloading = false
